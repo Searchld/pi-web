@@ -370,6 +370,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
+  const [allowedToolPresets, setAllowedToolPresets] = useState<ToolPreset[] | null>(null);
+  const [ruoyiToolPolicyManaged, setRuoyiToolPolicyManaged] = useState(false);
   const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(() => initialChoices?.thinkingLevel ?? null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
@@ -493,6 +495,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
   const existingSessionId = session?.id;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/ruoyi-agent-policy", { signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() as Promise<{ managed?: unknown }> : null)
+      .then((policy) => {
+        setRuoyiToolPolicyManaged(policy?.managed === true);
+        if (policy?.managed === true) setAllowedToolPresets([]);
+      })
+      .catch(() => {
+        setRuoyiToolPolicyManaged(false);
+        setAllowedToolPresets(null);
+      });
+    return () => controller.abort();
+  }, []);
 
   useLayoutEffect(() => {
     if (!existingSessionId && (!isNew || sessionIdRef.current)) return;
@@ -2391,6 +2408,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, displayThinkingLevel, handleThinkingLevelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
+    if (allowedToolPresets && !allowedToolPresets.includes(preset)) {
+      addNotice({ type: "error", message: "当前系统权限不允许使用该 Agent 工具预设" });
+      return;
+    }
+    const previousPreset = toolPreset;
     const toolNames = getToolNamesForPreset(preset);
     setPreferredToolPreset(preset);
     setToolPresetState(preset);
@@ -2434,8 +2456,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to set tools:", e);
+      setToolPresetState(previousPreset);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "工具预设切换失败" });
     }
-  }, [cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
+  }, [addNotice, allowedToolPresets, cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel, toolPreset]);
 
   const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
     const container = scrollContainerRef.current;
@@ -2752,7 +2776,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamState,
-    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, allowedToolPresets, ruoyiToolPolicyManaged, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,

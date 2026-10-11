@@ -73,7 +73,9 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
-import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
+import { getLastSettingsSection, SETTINGS_SECTION_VALUES, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
+import { getRuoyiAuthorization, setRuoyiAuthorization } from "@/lib/ruoyi-auth-client";
+import { getRuoyiEmbedOrigins } from "@/lib/ruoyi-embed-origins";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -87,6 +89,7 @@ const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const TOOL_END_REFRESH_MS = 1000;
+const RUOYI_EMBED_ORIGINS = getRuoyiEmbedOrigins(process.env.NEXT_PUBLIC_RUOYI_EMBED_ORIGIN);
 
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
@@ -98,15 +101,131 @@ function lastAgentTabId(tabs: readonly { sessionId: string }[]): string | null {
   return last ? `agent:${last.sessionId}` : null;
 }
 
-export function AppShell() {
+export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isEmbeddedRuoyi = searchParams.get("embedded") === "1";
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
+  const [isRuoyiAuthenticated, setIsRuoyiAuthenticated] = useState(() => !isEmbeddedRuoyi);
+  const ruoyiAuthTokenRef = useRef<string | null>(null);
+  const ruoyiAuthAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!isEmbeddedRuoyi) return;
+
+    const notifyParent = (type: "qimiao-authenticated" | "qimiao-auth-failed") => {
+      if (window.parent === window) return;
+      RUOYI_EMBED_ORIGINS.forEach((origin) => window.parent.postMessage({ type }, origin));
+    };
+    const establish = async (token: string) => {
+      if (token === ruoyiAuthTokenRef.current) return;
+      ruoyiAuthAbortRef.current?.abort();
+      const controller = new AbortController();
+      ruoyiAuthAbortRef.current = controller;
+      ruoyiAuthTokenRef.current = token;
+      setIsRuoyiAuthenticated(false);
+      setRuoyiAuthorization(token);
+      try {
+        const authResponse = await fetch("/api/ruoyi-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+          signal: controller.signal,
+        });
+        if (!authResponse.ok) throw new Error("RuoYi authentication failed");
+        const workspaceResponse = await fetch("/api/ruoyi-workspace", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(getRuoyiAuthorization() ? { "X-RuoYi-Authorization": getRuoyiAuthorization()! } : {}),
+          },
+          signal: controller.signal,
+        });
+        const workspace = await workspaceResponse.json().catch(() => ({})) as { cwd?: string };
+        if (!workspaceResponse.ok || !workspace.cwd || ruoyiAuthTokenRef.current !== token) {
+          throw new Error("RuoYi workspace unavailable");
+        }
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("cwd") !== workspace.cwd) {
+          params.set("cwd", workspace.cwd);
+          setInitialNavigation(getInitialNavigation(params));
+          router.replace(`?${params.toString()}`, { scroll: false });
+        }
+        setIsRuoyiAuthenticated(true);
+        notifyParent("qimiao-authenticated");
+      } catch {
+        if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) notifyParent("qimiao-auth-failed");
+      }
+    };
+    const receive = (event: MessageEvent) => {
+      if (window.parent === window || event.source !== window.parent) return;
+      if (!RUOYI_EMBED_ORIGINS.includes(event.origin)) return;
+      if (event.data?.type !== "qimiao-auth" || typeof event.data.token !== "string" || !event.data.token.trim()) return;
+      void establish(event.data.token);
+    };
+    window.addEventListener("message", receive);
+    if (window.parent !== window && RUOYI_EMBED_ORIGINS.length > 0) {
+      const ready = () => RUOYI_EMBED_ORIGINS.forEach((origin) => window.parent.postMessage({ type: "qimiao-ready" }, origin));
+      ready();
+      const retry = window.setTimeout(ready, 250);
+      return () => {
+        window.clearTimeout(retry);
+        ruoyiAuthAbortRef.current?.abort();
+        window.removeEventListener("message", receive);
+      };
+    }
+    return () => {
+      ruoyiAuthAbortRef.current?.abort();
+      window.removeEventListener("message", receive);
+    };
+  }, [isEmbeddedRuoyi, router]);
   // Keep the system-theme subscription mounted for the lifetime of the app.
   useTheme();
   // Restore fonts even when Settings and the chat composer have not been opened.
   useFontPreferences();
   const { locale, t: translate } = useI18n();
+  const [terminalAccess, setTerminalAccess] = useState(() => ({
+    ready: !isRuoyiIntegration,
+    allowed: !isRuoyiIntegration,
+  }));
+  const [allowedSettingsSections, setAllowedSettingsSections] = useState<readonly SettingsSection[]>(
+    () => isRuoyiIntegration ? [] : SETTINGS_SECTION_VALUES,
+  );
+  useEffect(() => {
+    if (!isRuoyiIntegration) {
+      setTerminalAccess({ ready: true, allowed: true });
+      setAllowedSettingsSections(SETTINGS_SECTION_VALUES);
+      return;
+    }
+    if (!isRuoyiAuthenticated) {
+      setTerminalAccess({ ready: false, allowed: false });
+      setAllowedSettingsSections([]);
+      return;
+    }
+    const controller = new AbortController();
+    const authorization = getRuoyiAuthorization();
+    void fetch("/api/ruoyi-agent-policy", {
+      headers: authorization ? { "X-RuoYi-Authorization": authorization } : undefined,
+      signal: controller.signal,
+    })
+      .then(async (response) => response.ok ? response.json() as Promise<{ managed?: unknown; toolNames?: unknown; settingsSections?: unknown }> : null)
+      .then((policy) => {
+        if (controller.signal.aborted) return;
+        setTerminalAccess({
+          ready: true,
+          allowed: policy?.managed !== true || (Array.isArray(policy.toolNames) && policy.toolNames.includes("bash")),
+        });
+        setAllowedSettingsSections(policy?.managed === true
+          ? SETTINGS_SECTION_VALUES.filter((section) => Array.isArray(policy.settingsSections) && policy.settingsSections.includes(section))
+          : SETTINGS_SECTION_VALUES);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setTerminalAccess({ ready: true, allowed: false });
+          setAllowedSettingsSections([]);
+        }
+      });
+    return () => controller.abort();
+  }, [isRuoyiIntegration, isRuoyiAuthenticated]);
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
@@ -329,7 +448,6 @@ export function AppShell() {
   const [systemInfoLoading, setSystemInfoLoading] = useState(false);
   const systemInfoLoaderRef = useRef<(() => Promise<void>) | null>(null);
   const systemInfoLoadIdRef = useRef(0);
-  const systemBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt);
@@ -436,8 +554,12 @@ export function AppShell() {
 
   // The composer opens Settings too: a bare /mcp opens Settings › MCP (useAgentSession).
   const openSettingsSection = useCallback((section: SettingsSection) => {
-    setSettingsSection(section);
-  }, []);
+    if (allowedSettingsSections.includes(section)) setSettingsSection(section);
+  }, [allowedSettingsSections]);
+
+  useEffect(() => {
+    if (settingsSection && !allowedSettingsSections.includes(settingsSection)) setSettingsSection(null);
+  }, [allowedSettingsSections, settingsSection]);
 
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) {
@@ -550,16 +672,25 @@ export function AppShell() {
   ];
 
   useEffect(() => {
+    if (terminalsRestored || !terminalAccess.ready) return;
     try {
-      const saved = restoreTerminalTabs(window.sessionStorage.getItem(TERMINAL_TABS_KEY));
-      setTerminalTabs(saved.tabs);
-      if (saved.activeId) {
-        setActiveFileTabId(saved.activeId);
-        setRightPanelOpen(saved.open);
+      if (terminalAccess.allowed) {
+        const saved = restoreTerminalTabs(window.sessionStorage.getItem(TERMINAL_TABS_KEY));
+        setTerminalTabs(saved.tabs);
+        if (saved.activeId) {
+          setActiveFileTabId(saved.activeId);
+          setRightPanelOpen(saved.open);
+        }
       }
     } catch { /* storage is optional */ }
     setTerminalsRestored(true);
-  }, []);
+  }, [terminalAccess, terminalsRestored]);
+
+  useEffect(() => {
+    if (!terminalAccess.ready || terminalAccess.allowed) return;
+    setTerminalTabs([]);
+    setActiveFileTabId((tabId) => /^[a-f0-9]{32}$/.test(tabId ?? "") ? null : tabId);
+  }, [terminalAccess]);
 
   useEffect(() => {
     if (!terminalsRestored) return;
@@ -1184,13 +1315,14 @@ export function AppShell() {
   }, [handleOpenFile, selectedSession?.id]);
 
   const handleOpenTerminal = useCallback((cwd: string) => {
+    if (!terminalAccess.allowed) return;
     const existing = terminalTabs.find((tab) => tab.cwd === cwd);
     const tab = existing ?? newTerminalTab(cwd);
     if (!existing) setTerminalTabs((tabs) => [...tabs, tab]);
     setActiveFileTabId(tab.id);
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
-  }, [terminalTabs, isMobile]);
+  }, [terminalAccess.allowed, terminalTabs, isMobile]);
 
   // Subagent work opens in a right-panel tab instead of hijacking the main chat.
   const handleOpenSubagentTab = useCallback((sessionId: string, label: string) => {
@@ -1234,15 +1366,6 @@ export function AppShell() {
       return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
   }, [fileTabs, terminalTabs, agentTabs]);
-
-  const handleViewFullHistory = useCallback(() => {
-    if (!selectedSession) return;
-    window.open(
-      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  }, [selectedSession]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -1288,7 +1411,7 @@ export function AppShell() {
   const handleNewSessionBarFocusDone = useCallback(() => {
     newSessionBarFocusRef.current = null;
   }, []);
-  const newSessionContextBar = selectedSession === null && effectiveNewSessionCwd ? (
+  const newSessionContextBar = !isRuoyiIntegration && selectedSession === null && effectiveNewSessionCwd ? (
     <NewSessionContextBar
       context={contextForCwd(sidebarNewSessionContext, effectiveNewSessionCwd, newSessionMoveRef.current)}
       mobile={isMobile}
@@ -1395,6 +1518,7 @@ export function AppShell() {
         onNewSession={handleNewSession}
         controlRef={sidebarControlRef}
         onNewSessionContextChange={handleSidebarNewSessionContext}
+        hideWorkspacePicker={isRuoyiIntegration}
         initialSessionId={initialSessionId}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
@@ -1403,7 +1527,7 @@ export function AppShell() {
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
-        onOpenTerminal={handleOpenTerminal}
+        onOpenTerminal={terminalAccess.allowed ? handleOpenTerminal : undefined}
         explorerRefreshKey={explorerRefreshKey}
         onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}
@@ -1416,7 +1540,7 @@ export function AppShell() {
         {([
           ["models", translate("common.models")],
           ["skills", translate("common.skills")],
-        ] as const).map(([section, label]) => {
+        ] as const).filter(([section]) => allowedSettingsSections.includes(section)).map(([section, label]) => {
           const disabled = settingsSectionRequiresProject(section) && !projectTrustCwd;
           return (
             <button
@@ -1441,9 +1565,11 @@ export function AppShell() {
             </button>
           );
         })}
-        <button
+        {allowedSettingsSections.length > 0 && <button
           type="button"
-          onClick={() => setSettingsSection(getLastSettingsSection(projectTrustCwd))}
+          onClick={() => openSettingsSection(allowedSettingsSections.includes(getLastSettingsSection(projectTrustCwd))
+            ? getLastSettingsSection(projectTrustCwd)
+            : allowedSettingsSections[0])}
           title={translate("common.settings")}
           aria-label={translate("common.settings")}
           style={{
@@ -1457,7 +1583,7 @@ export function AppShell() {
         >
           <SettingsSectionIcon section="general" size={14} strokeWidth={2} />
           <span>{translate("common.settings")}</span>
-        </button>
+        </button>}
       </div>
     </>
   );
@@ -1517,67 +1643,6 @@ export function AppShell() {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
-        <button
-          type="button"
-          onClick={() => {
-            handleViewFullHistory();
-            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-          }}
-          disabled={!selectedSession}
-          title={selectedSession ? translate("history.full") : translate("history.unsaved")}
-          aria-label={translate("history.full")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%",
-            padding: mobile ? 0 : "0 12px",
-            background: "none",
-            border: "none",
-            borderTop: "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-            cursor: selectedSession ? "pointer" : "not-allowed",
-            opacity: selectedSession ? 1 : 0.45,
-            flexShrink: 0,
-            fontSize: 11,
-            whiteSpace: "nowrap",
-            transition: "color 0.1s, background 0.1s, opacity 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (!selectedSession) return;
-            event.currentTarget.style.color = "var(--text)";
-            event.currentTarget.style.background = "var(--bg-hover)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)";
-            event.currentTarget.style.background = "none";
-          }}
-          data-mobile-toolbar-action={mobile ? "history" : undefined}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-              flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
-            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-          {!mobile && <span>{translate("history.label")}</span>}
-        </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
@@ -1734,44 +1799,6 @@ export function AppShell() {
             hasSession
           />
         ))}
-        <button
-          ref={systemBtnRef}
-          type="button"
-          onClick={() => handleSystemInfoToggle("system", mobile)}
-          disabled={mobile && !showChat}
-          title={translate("system.prompt")}
-          aria-label={translate("system.prompt")}
-          aria-pressed={activeTopPanel === "system"}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
-            border: "none",
-            borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-            opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (mobile && !showChat) return;
-            event.currentTarget.style.color = "var(--text)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)";
-          }}
-          data-mobile-toolbar-action={mobile ? "system" : undefined}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="8" y1="13" x2="16" y2="13" />
-            <line x1="8" y1="17" x2="13" y2="17" />
-          </svg>
-          {!mobile && <span>{translate("system.label")}</span>}
-        </button>
         <button
           type="button"
           onClick={() => handleSystemInfoToggle("tools", mobile)}
@@ -2007,6 +2034,22 @@ export function AppShell() {
       </button>
     );
   };
+
+  if (isEmbeddedRuoyi && !isRuoyiAuthenticated) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: "100%", height: "var(--app-viewport-height, 100dvh)",
+          color: "var(--text-muted)", background: "var(--bg)", fontSize: 14,
+        }}
+      >
+        正在验证当前账号…
+      </div>
+    );
+  }
 
   return (
     <>
@@ -2296,6 +2339,7 @@ export function AppShell() {
                 <SystemPromptPanel
                   loading={systemInfoLoading}
                   prompt={systemPrompt}
+                  locale={locale}
                   translate={translate}
                 />
               )}
@@ -2750,6 +2794,7 @@ export function AppShell() {
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         initialSection={settingsSection}
+        allowedSections={allowedSettingsSections}
         quoteSelectionEnabled={quoteSelectionEnabled}
         onQuoteSelectionChange={handleQuoteSelectionChange}
         onClose={() => {

@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
+import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
   try {
     const rpc = getRpcSession(id);
     if (rpc?.isAlive()) {

@@ -13,6 +13,7 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -403,6 +404,8 @@ function readScope(scope: unknown): PluginScope {
 }
 
 export async function GET(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "plugins");
+  if (denied) return denied;
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
@@ -422,6 +425,8 @@ export async function GET(req: Request) {
 // enable/disable also take { packages: [{ source, scope }] } in place of
 // source/scope and add per-package `results` to the response.
 export async function POST(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "plugins");
+  if (denied) return denied;
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }

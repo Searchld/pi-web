@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { isFileManagerSupported, isLoopbackHost, launchFileManager } from "@/lib/open-in-file-manager";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,12 +17,14 @@ function availabilityFor(request: Request): { supported: boolean; reason: string
 
 /** Lets the sidebar pick the button label and disable it when unavailable. */
 export async function GET(request: Request) {
+  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ supported: false, reason: "ruoyi-managed", platform: process.platform });
   const { supported, reason } = availabilityFor(request);
   return NextResponse.json({ supported, reason, platform: process.platform });
 }
 
 /** Opens the session workspace in the OS file manager. */
 export async function POST(request: Request) {
+  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "ruoyi-managed" }, { status: 403 });
   try {
     const { supported, reason } = availabilityFor(request);
     if (!supported) {

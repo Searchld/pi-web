@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpTestResponse } from "@/lib/api-types";
 import { isMcpEntryRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
 import { testMcpServer } from "@/lib/mcp-test";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ function errorMessage(error: unknown): string {
 // `cwd` is the panel's project: required for a project server, and the
 // folder a global stdio server runs in.
 export async function POST(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "mcp");
+  if (denied) return denied;
   const entry = await readConnectableMcpEntry(req);
   if (isMcpEntryRefusal(entry)) return NextResponse.json(entry.body, { status: entry.status });
   const { scope, name, sourcePath, configKey, config, cwd, internals } = entry;

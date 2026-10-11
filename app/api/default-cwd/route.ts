@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { mkdirSync } from "fs";
 import { defaultCwdPath } from "@/lib/default-cwd";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 // POST /api/default-cwd
 // Creates ~/pi-cwd/<YYYYMMDD> (local date) if it doesn't exist and returns the path.
 // The client then selects it through /api/cwd/validate like any other directory.
 export async function POST() {
+  if (isRuoyiIntegrationEnabled()) {
+    return NextResponse.json({ error: "RuoYi 模式不允许创建默认工作目录" }, { status: 403 });
+  }
   try {
     const dir = defaultCwdPath();
     mkdirSync(dir, { recursive: true });

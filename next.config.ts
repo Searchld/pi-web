@@ -5,6 +5,15 @@ import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
+function normalizeBasePath(value: string | undefined): string | undefined {
+  const path = value?.trim();
+  if (!path || path === "/") return undefined;
+  if (!path.startsWith("/") || path.startsWith("//") || /[?#]/.test(path)) {
+    throw new Error("PI_WEB_BASE_PATH 必须是类似 /xi-web 的路径");
+  }
+  return path.replace(/\/+$/, "");
+}
+const basePath = normalizeBasePath(process.env.PI_WEB_BASE_PATH);
 let piVersion = "unknown";
 try {
   const piPkgPath = join(configDir, "node_modules/@earendil-works/pi-coding-agent/package.json");
@@ -17,6 +26,7 @@ try {
 const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cjs");
 
 const nextConfig: NextConfig = {
+  basePath,
   outputFileTracingRoot: configDir,
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever
@@ -90,7 +100,7 @@ const nextConfig: NextConfig = {
         source: "/sw.js",
         headers: [
           { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
-          { key: "Service-Worker-Allowed", value: "/" },
+          { key: "Service-Worker-Allowed", value: basePath ? `${basePath}/` : "/" },
         ],
       },
       {
@@ -104,6 +114,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_PI_VERSION: piVersion,
+    NEXT_PUBLIC_PI_WEB_BASE_PATH: basePath ?? "",
   },
 };
 

@@ -11,6 +11,7 @@ import {
   resolveSessionPath,
 } from "@/lib/session-reader";
 import type { SessionInfo } from "@/lib/types";
+import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "request-denied", "Content-Type must be application/json");
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
 
   try {
     const opened = getRpcSession(id);

@@ -6,8 +6,8 @@ const panelSource = await readFile(new URL("./ToolDefinitionsPanel.tsx", import.
 const systemSource = await readFile(new URL("./SystemPromptPanel.tsx", import.meta.url), "utf8");
 const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 
-test("keeps System and Tools in separate adjacent toolbar actions", () => {
-  assert.match(appShellSource, /handleSystemInfoToggle\("system", mobile\)[\s\S]*?handleSystemInfoToggle\("tools", mobile\)/);
+test("仅在工具栏展示工具定义，不展示系统提示词", () => {
+  assert.doesNotMatch(appShellSource, /handleSystemInfoToggle\("system", mobile\)/);
   assert.match(appShellSource, /activeTopPanel === "system"[\s\S]*?<SystemPromptPanel/);
   assert.match(appShellSource, /activeTopPanel === "tools"[\s\S]*?<ToolDefinitionsPanel/);
   assert.doesNotMatch(systemSource, /ToolEntry|tools/);
@@ -29,7 +29,7 @@ test("shows schema fields and metadata in the detail form", () => {
   assert.match(panelSource, /parameters\.required/);
   assert.match(panelSource, /field\.allowedValues/);
   assert.match(panelSource, /field\.defaultValue/);
-  assert.match(panelSource, /selectedTool\.promptGuidelines/);
+  assert.match(panelSource, /displaySelectedTool\.promptGuidelines/);
 });
 
 test("preserves the two-column layout on narrow screens", () => {

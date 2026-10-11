@@ -26,12 +26,16 @@ import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } fro
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
 import { forgetSessionUiState } from "@/lib/session-ui-state";
+import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
+import { ruoyiSessionUiStatePath } from "@/lib/ruoyi-identity";
 
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
   const perf = startServerPerf("GET /api/sessions/[id]");
   try {
     perf?.span("resolve");
@@ -176,6 +180,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
   try {
     const { name } = await req.json() as { name?: string };
     if (typeof name !== "string") {
@@ -199,10 +205,13 @@ export async function PATCH(
 
 // DELETE /api/sessions/[id]
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
+  const statePath = access ? ruoyiSessionUiStatePath(access.identity.userId) : undefined;
   try {
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
@@ -358,7 +367,7 @@ export async function DELETE(
     }
     // Drop their pins and archive times; best effort, the files are already gone.
     try {
-      await forgetSessionUiState(deletedSessionIds);
+      await forgetSessionUiState(deletedSessionIds, statePath);
     } catch (error) {
       console.warn(`[pi-web] could not clear the sidebar state of deleted session ${id}: ${error instanceof Error ? error.message : String(error)}`);
     }

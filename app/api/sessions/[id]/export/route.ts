@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { fileURLToPath, pathToFileURL } from "url";
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
+import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 
 const execFileAsync = promisify(execFile);
 
@@ -243,6 +244,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
   const inline = new URL(req.url).searchParams.get("inline") === "1";
 
   try {

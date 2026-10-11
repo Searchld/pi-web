@@ -33,6 +33,11 @@
 - Large files arrive in 256 KB chunks with "Load more". The table shows a loaded prefix too (`complete: false`): its last record is dropped unless a line break outside quotes ends it, so a record cut mid-field never shows; it appears once the next chunk loads. Markdown and HTML keep their preview off while truncated.
 - Rows have one fixed height and only those around the viewport are rendered (`visibleRowRange()`, the SessionTree approach; no virtualization library). The table scrolls inside the viewer's own content box (`scrollRef`), so its scroll position is saved and restored like the source view's; it reads the box in a passive effect because the parent's ref is not attached yet in the child's layout effects. Column widths come from up to 500 sampled rows, clamped to 64–420 px; a cell ellipsizes and its full value is its tooltip. Gutter and header use `--bg-panel`, opaque, so columns scrolling under the sticky strips never show through.
 
+## XLSX files open as a table preview
+- `.xlsx` uses `DocumentViewer` and `GET /api/files/... ?type=preview`, rather than the text reader: XLSX files are ZIP containers, so decoding them as UTF-8 produces `PK` and garbled content.
+- The route parses the workbook with SheetJS only after the normal file-root authorization. Its HTML is constructed from escaped cell display values (never spreadsheet HTML), returned with the same restrictive CSP and sandbox as DOCX previews. Downloads still use `type=download`.
+- The preview is capped at 10 MiB, the first 10 worksheets, and 500 rows × 50 columns per worksheet. Formula expressions are not exposed; only the stored display value is rendered.
+
 ## Web password throttling
 - `lib/auth-throttle.ts` is deliberately global, not per-IP (its header says why). Failures double the delay (1 s → 60 s cap) for everyone; a success or 5 idle minutes resets it. The reset window must stay longer than the max delay, or waiting out one block restarts the burst.
 - State lives on `globalThis` under `Symbol.for("pi-web:auth-throttle")`, so it survives hot reload and `proxy.ts` and the route handlers share it under both `next dev` and `next start`. Tests reset it with `recordAuthSuccess()`.

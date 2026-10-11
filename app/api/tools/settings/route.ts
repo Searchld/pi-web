@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 import type { McpErrorResponse, McpRefusalReason, ToolSettingsResponse } from "@/lib/api-types";
 import {
   CODEMODE_INLINE_BUDGET_MAX,
@@ -46,7 +47,9 @@ async function readToolSettings(): Promise<ToolSettingsResponse> {
   return { isWindows: process.platform === "win32", powerShellEnabled, codemode, codemodeMode, codemodeInlineBudget };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "general");
+  if (denied) return denied;
   try {
     return NextResponse.json(await readToolSettings());
   } catch (error) {
@@ -55,6 +58,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "general");
+  if (denied) return denied;
   if (!isApiRequestAllowed(req)) {
     return refusal(403, "request-denied", "Untrusted API request");
   }

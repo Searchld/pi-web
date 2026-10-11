@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import type { PluginScope } from "@/lib/api-types";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { checkPluginUpdates } from "@/lib/plugin-updates";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "plugins");
+  if (denied) return denied;
   try {
     const body = await req.json() as {
       cwd?: unknown;

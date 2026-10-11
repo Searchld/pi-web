@@ -21,6 +21,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { GET, POST, dynamic } = await jiti.import("./route.ts");
 const { resetSessionUiStateCacheForTests } = await jiti.import("../../../../lib/session-ui-state.ts");
+const { ruoyiSessionUiStatePath } = await jiti.import("../../../../lib/ruoyi-identity.ts");
 
 const statePath = path.join(agentDir, "pi-web-session-state.json");
 const JSON_HEADERS = { host: "localhost", "Content-Type": "application/json" };
@@ -50,6 +51,67 @@ test("GET answers an empty state when nothing was saved", async () => {
   const response = await GET();
   assert.deepEqual(await okState(response), { version: 1, revision: 0, sessions: {}, projects: {} });
   await assert.rejects(stat(statePath), { code: "ENOENT" });
+});
+
+test("RuoYi 用户分别保存侧边栏归档状态", async (t) => {
+  const previousBaseUrl = process.env.RUOYI_API_BASE_URL;
+  const previousFetch = globalThis.fetch;
+  const stateDir = path.join(agentDir, "pi-web-ruoyi-session-state");
+  process.env.RUOYI_API_BASE_URL = "http://ruoyi.test";
+  globalThis.fetch = async (input, init) => {
+    const authorization = new Headers(init?.headers).get("Authorization");
+    const userId = authorization === "Bearer first-user" ? 1 : 2;
+    if (String(input).endsWith("/agent/v1/tool-policy")) {
+      return new Response(JSON.stringify({ code: 200, data: { chatEnabled: true } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ code: 200, user: { userId }, permissions: [] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  t.after(async () => {
+    if (previousBaseUrl === undefined) delete process.env.RUOYI_API_BASE_URL;
+    else process.env.RUOYI_API_BASE_URL = previousBaseUrl;
+    globalThis.fetch = previousFetch;
+    resetSessionUiStateCacheForTests();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const firstHeaders = { ...JSON_HEADERS, "X-RuoYi-Authorization": "first-user" };
+  const secondHeaders = { ...JSON_HEADERS, "X-RuoYi-Authorization": "second-user" };
+  const archived = await okState(await post({ action: "set", ids: ["session-a"], archived: true }, firstHeaders));
+  assert.equal(typeof archived.sessions["session-a"].archivedAt, "number");
+
+  const first = await GET(new Request("http://localhost/api/sessions/ui-state", { headers: firstHeaders }));
+  assert.deepEqual((await okState(first)).sessions, archived.sessions);
+  const second = await GET(new Request("http://localhost/api/sessions/ui-state", { headers: secondHeaders }));
+  assert.deepEqual((await okState(second)).sessions, {});
+  await stat(ruoyiSessionUiStatePath("1"));
+  await assert.rejects(stat(ruoyiSessionUiStatePath("2")), { code: "ENOENT" });
+});
+
+test("RuoYi 用户未获聊天权限时不能读取或修改侧边栏状态", async (t) => {
+  const previousBaseUrl = process.env.RUOYI_API_BASE_URL;
+  const previousFetch = globalThis.fetch;
+  process.env.RUOYI_API_BASE_URL = "http://ruoyi.test";
+  globalThis.fetch = async (input) => new Response(JSON.stringify(String(input).endsWith("/tool-policy")
+    ? { code: 200, data: { chatEnabled: false } }
+    : { code: 200, user: { userId: 3 }, permissions: [] }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+  t.after(() => {
+    if (previousBaseUrl === undefined) delete process.env.RUOYI_API_BASE_URL;
+    else process.env.RUOYI_API_BASE_URL = previousBaseUrl;
+    globalThis.fetch = previousFetch;
+  });
+
+  const headers = { ...JSON_HEADERS, "X-RuoYi-Authorization": "no-chat-user" };
+  assert.equal((await GET(new Request("http://localhost/api/sessions/ui-state", { headers }))).status, 403);
+  assert.equal((await post({ action: "set", ids: ["session-a"], archived: true }, headers)).status, 403);
 });
 
 test("set pins and archives, the two exclude each other, and GET reads it back", async () => {

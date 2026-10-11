@@ -4,6 +4,8 @@ import path from "path";
 import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
 import { getGitFileDiff } from "@/lib/git-changes";
 import { hasParentDirectorySegment } from "@/lib/path-security";
+import { requireRuoyiToolAccess } from "@/lib/ruoyi-access";
+import { samePath } from "@/lib/paths";
 
 function isDiffPathAllowed(filePath: string, allowedRoots: Set<string>): boolean {
   if (hasParentDirectorySegment(filePath)) return false;
@@ -26,6 +28,8 @@ function isDiffPathAllowed(filePath: string, allowedRoots: Set<string>): boolean
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireRuoyiToolAccess(request, "read");
+    if (access instanceof NextResponse) return access;
     const cwd = request.nextUrl.searchParams.get("cwd")?.trim() ?? "";
     const filePath = request.nextUrl.searchParams.get("path")?.trim() ?? "";
     if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
@@ -34,8 +38,11 @@ export async function GET(request: NextRequest) {
     if (!filePath || (!filePath.startsWith("/") && !isWindowsAbsolutePath(filePath))) {
       return NextResponse.json({ error: "path must be an absolute path" }, { status: 400 });
     }
+    if (access && !samePath(cwd, access.workspace)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
 
-    const allowedRoots = await getAllowedFileRoots();
+    const allowedRoots = access ? new Set([access.workspace]) : await getAllowedFileRoots();
     if (!isFilePathAllowed(cwd, allowedRoots) || !isFilePathAllowed(filePath, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }

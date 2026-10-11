@@ -490,10 +490,10 @@ test("below the sessions the section's header row holds the files' keys in the f
   // search in the toolbar row's place.
   const head = html.slice(html.indexOf('<div class="sidebar-files-head">'), html.indexOf('<div class="sidebar-files-scroll'));
   assert.doesNotMatch(head, /sidebar-tool-button|sidebar-files-actions/);
-  // Without a folder they wait, disabled, in the same places; so does the
-  // terminal without a handler, where the files tab leaves it out.
+  // Without a folder the non-terminal keys wait disabled in the same places.
+  // A caller that omits the terminal handler (for example, a role without
+  // command permission) does not render a terminal entry at all.
   assert.deepEqual(keyLabels(sectionKeys(render())), [
-    "Open workspace terminal (disabled)",
     "Open in file manager (disabled)",
     "Upload files to project root (disabled)",
     "Refresh file list (disabled)",
@@ -502,15 +502,15 @@ test("below the sessions the section's header row holds the files' keys in the f
     "Search files (disabled) expanded=false",
   ]);
   assert.deepEqual(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).slice(0, 3), [
-    "Open workspace terminal (disabled)",
     "Open in file manager",
     "Upload files to project root",
+    "Refresh file list",
   ]);
 
   // The same key elements as the files tab's row, rendered in one place at a time.
   const group = between('<div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>', "{/* Everything under that header row");
   assert.match(group, /^<div className="sidebar-files-keys" role="group" aria-label=\{t\("sidebar\.fileActions"\)\}>\s*\{terminalButton\}\s*\{fileManagerButton\}\s*\{uploadButton\}\s*\{refreshButton\}\s*\{ignoredFilesButton\(\)\}\s*\{changesButton\}\s*<ToolbarIconButton[\s\S]*?<SearchIcon size=\{13\} \/>\s*<\/ToolbarIconButton>\s*<\/div>\s*<\/div>\s*\)\}\s*$/);
-  assert.match(source, /const terminalButton = \(\s*<ToolbarIconButton\s*onClick=\{\(\) => \{ if \(explorerCwd\) onOpenTerminal\?\.\(explorerCwd\); \}\}\s*disabled=\{!explorerCwd \|\| !onOpenTerminal\}/);
+  assert.match(source, /const terminalButton = onOpenTerminal && \(\s*<ToolbarIconButton\s*onClick=\{\(\) => \{ if \(explorerCwd\) onOpenTerminal\?\.\(explorerCwd\); \}\}\s*disabled=\{!explorerCwd \|\| !onOpenTerminal\}/);
   assert.match(source, /disabled=\{!explorerCwd \|\| fileManagerUnavailable\}/);
   assert.match(source, /disabled=\{!explorerCwd \|\| explorerUploadBusy\}/);
   // An upload's progress and summary are the tree's: a folded section opens.
@@ -1107,7 +1107,7 @@ test("a cwd prop that went away and came back still moves the sidebar", () => {
   assert.match(sync, /if \(selectedCwdProp !== lastSyncedCwdPropRef\.current\) \{\s*lastSyncedCwdPropRef\.current = selectedCwdProp;\s*setSelectedCwd\(selectedCwdProp\);/);
 });
 
-test("the footer opens the project list in the files; the archive view replaces the tree", () => {
+test("the footer opens the project list in the files; fixed workspaces remove its entry", () => {
   const footer = source.slice(source.indexOf("const handleOpenOtherProject"), source.indexOf("const sessionMenuItems"));
   assert.match(footer, /revealFiles\("project-list"\);\s*\};/);
   // Once the files show, the picker's project menu opens below its button.
@@ -1116,10 +1116,13 @@ test("the footer opens the project list in the files; the archive view replaces 
   assert.match(source, /onOpenArchive: openArchiveView,/);
   // The sessions tab, in the tabs layout (switchTab does nothing below the files).
   assert.match(callbackBody("openArchiveView"), /setArchiveView\(true\);[\s\S]*?setSessionSearchOpen\(false\);\s*switchTab\("sessions"\);/);
-  assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{model\.rows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
+  assert.match(source, /const sessionTreeRows = hideWorkspacePicker \? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open"\) : model\.rows;/);
+  assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionTreeRows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
   assert.match(source, /<SessionTree \{\.\.\.treeProps\} rows=\{archiveRows\} emptyLabel=\{t\("sidebar\.noArchived"\)\} \/>/);
   assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
   assert.match(callbackBody("handleTogglePinned"), /setPinnedCollapsed\(next\);\s*savePinnedCollapsed\(next\);/);
+  const locked = render({ hideWorkspacePicker: true });
+  assert.doesNotMatch(locked, /project-picker|Open another project/);
 });
 
 test("the files show the composer bar's picker, one row below the sessions and two in the tab, with removal and activity", () => {

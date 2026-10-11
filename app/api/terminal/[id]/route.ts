@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { getTerminalCwd, killTerminal, resizeTerminal, writeTerminal } from "@/lib/terminal-manager";
+import { requireRuoyiTerminalOwnerAccess } from "@/lib/ruoyi-terminal-access";
+import { getTerminalCwd, isTerminalOwnedBy, killTerminal, resizeTerminal, writeTerminal } from "@/lib/terminal-manager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const access = await requireRuoyiTerminalOwnerAccess(req);
+  if (access instanceof NextResponse) return access;
   const { id } = await params;
+  if (access && !isTerminalOwnedBy(id, access.identity.userId, access.workspace)) {
+    return NextResponse.json({ error: "Terminal expired or closed" }, { status: 404 });
+  }
   const cwd = getTerminalCwd(id);
   return cwd
     ? NextResponse.json({ id, cwd })
@@ -17,7 +23,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const access = await requireRuoyiTerminalOwnerAccess(req);
+    if (access instanceof NextResponse) return access;
     const { id } = await params;
+    if (access && !isTerminalOwnedBy(id, access.identity.userId, access.workspace)) {
+      return NextResponse.json({ error: "Terminal not found" }, { status: 404 });
+    }
     const body = await req.json() as { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown };
     if (body.type === "input" && typeof body.data === "string" && body.data.length <= 64 * 1024) {
       return writeTerminal(id, body.data)
@@ -38,10 +49,15 @@ export async function POST(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const access = await requireRuoyiTerminalOwnerAccess(req);
+  if (access instanceof NextResponse) return access;
   const { id } = await params;
+  if (access && !isTerminalOwnedBy(id, access.identity.userId, access.workspace)) {
+    return NextResponse.json({ error: "Terminal not found" }, { status: 404 });
+  }
   killTerminal(id);
   return NextResponse.json({ success: true });
 }

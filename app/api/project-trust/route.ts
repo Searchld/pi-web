@@ -13,6 +13,7 @@ import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-manager";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ async function listProjectMcpServers(agentDir: string, cwd: string, allowedRoots
 // the files only, like GET /api/mcp: no server is spawned, no value resolved,
 // no `!command` run, and env and header values never leave the server.
 export async function GET(req: Request) {
+  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "RuoYi 模式不允许设置信任项目" }, { status: 403 });
   const result = await validateCwd(new URL(req.url).searchParams.get("cwd"));
   if ("response" in result) return result.response;
   const agentDir = getAgentDir();
@@ -73,6 +75,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "RuoYi 模式不允许设置信任项目" }, { status: 403 });
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
   try {

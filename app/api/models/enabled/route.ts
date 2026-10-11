@@ -26,6 +26,8 @@ import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +93,9 @@ async function resolveCwd(raw: string | null): Promise<{ cwd: string } | { error
 }
 
 export async function GET(req: Request) {
+  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "RuoYi 模式下模型白名单由系统策略统一管理" }, { status: 403 });
+  const denied = await requireRuoyiSettingsAccess(req, "models");
+  if (denied) return denied;
   const resolved = await resolveCwd(new URL(req.url).searchParams.get("cwd"));
   if ("error" in resolved) return resolved.error;
 
@@ -179,6 +184,9 @@ function samePatternList(a: string[] | undefined, b: string[] | undefined): bool
 }
 
 export async function PUT(req: Request) {
+  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "RuoYi 模式下模型白名单由系统策略统一管理" }, { status: 403 });
+  const denied = await requireRuoyiSettingsAccess(req, "models");
+  if (denied) return denied;
   let body: EnabledModelsRequest;
   try {
     body = await req.json() as EnabledModelsRequest;

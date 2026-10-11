@@ -14,10 +14,12 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { inferRemovedWorktree } from "@/lib/worktree";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+import { requireRuoyiChatAccess } from "@/lib/ruoyi-access";
 
 export const dynamic = "force-dynamic";
 
-async function loadModels(cwd: string): Promise<ModelsData> {
+async function loadModels(cwd: string, ruoyiManaged: boolean): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
   let modelList: { id: string; name: string; provider: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
@@ -25,13 +27,21 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
 
   const agentDir = getAgentDir();
-  // Gate untrusted project extensions: enumerating models still imports and
-  // runs a repository's .pi/extensions factories, so honor project trust here
-  // too (see lib/project-trust.ts, #236).
-  const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+  // 企业模式下模型清单只用于和 RuoYi 白名单取交集，不能为此加载项目或用户扩展。
+  // 普通本地模式仍保持原有项目可信任行为。
+  const trustReloadOptions = ruoyiManaged ? undefined : projectTrustReloadOptions(cwd, agentDir);
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
+    ...(ruoyiManaged ? {
+      resourceLoaderOptions: {
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true,
+      },
+    } : {}),
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
   const modelError = services.modelRuntime.getError();
@@ -102,7 +112,9 @@ const EMPTY_MODELS: ModelsData = {
 };
 
 export async function GET(req: Request) {
-  const requestedCwd = resolve(new URL(req.url).searchParams.get("cwd") || process.cwd());
+  const access = isRuoyiIntegrationEnabled() ? await requireRuoyiChatAccess(req) : null;
+  if (access instanceof Response) return access;
+  const requestedCwd = resolve(access?.workspace ?? (new URL(req.url).searchParams.get("cwd") || process.cwd()));
   // A subagent run isolated in a worktree has that worktree removed when the run
   // finishes, yet its session file still records the worktree as its cwd. Fall back
   // to the main repo it branched from, so opening a finished subagent resolves the
@@ -128,7 +140,25 @@ export async function GET(req: Request) {
   }
 
   try {
-    return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
+    // 受管模式与本地模式不能复用缓存：本地模式的缓存可能含有项目扩展注册的模型。
+    const models = access
+      ? await loadModels(cwd, true)
+      : await loadModelsWithCache(cwd, () => loadModels(cwd, false));
+    if (!access) return Response.json(models);
+    const allowed = new Set(access.policy.modelPolicy.models.map((model) => `${model.provider}:${model.modelId}`));
+    const modelList = models.modelList.filter((model) => allowed.has(`${model.provider}:${model.id}`));
+    const names = Object.fromEntries(Object.entries(models.models).filter(([key]) => allowed.has(key)));
+    const defaultDefinition = access.policy.modelPolicy.models.find((model) => model.modelCode === access.policy.modelPolicy.defaultModelCode);
+    const defaultModel = defaultDefinition && allowed.has(`${defaultDefinition.provider}:${defaultDefinition.modelId}`)
+      ? { provider: defaultDefinition.provider, modelId: defaultDefinition.modelId }
+      : modelList[0] ? { provider: modelList[0].provider, modelId: modelList[0].id } : null;
+    return Response.json({
+      ...models,
+      models: names,
+      modelList,
+      defaultModel,
+      modelPolicyVersion: access.policy.modelPolicy.policyVersion,
+    });
   } catch {
     return Response.json(withSafeModelLoadFailure(EMPTY_MODELS));
   }

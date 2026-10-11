@@ -22,6 +22,8 @@ export interface ModelLike {
 
 export interface ToolInfo {
   name: string;
+  /** SDK 工具的展示名称；部分版本的 SDK 不会在 getAllTools() 中保留该字段。 */
+  label?: string;
   description: string;
   parameters?: unknown;
   promptGuidelines?: string[];

@@ -196,6 +196,8 @@ interface Props {
   controlRef?: Ref<SessionSidebarControl>;
   /** The sidebar's cwd as the bar above a fresh composer shows it; reported when that changes. */
   onNewSessionContextChange?: (context: NewSessionContext | null) => void;
+  /** 宿主应用固定用户工作目录时，隐藏整个工作目录选择器。 */
+  hideWorkspacePicker?: boolean;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
@@ -468,7 +470,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, hideWorkspacePicker = false, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -1384,6 +1386,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     moreShown,
     pinnedCollapsed,
   }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+  const sessionTreeRows = hideWorkspacePicker ? model.rows.filter((row) => row.kind !== "footer-open") : model.rows;
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -2314,7 +2317,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // 13px in the header row (smaller keys there, beside the label), 14px in the
   // files tab's row.
   const keyIconSize = stacked ? 13 : 14;
-  const terminalButton = (
+  const terminalButton = onOpenTerminal && (
     <ToolbarIconButton
       onClick={() => { if (explorerCwd) onOpenTerminal?.(explorerCwd); }}
       disabled={!explorerCwd || !onOpenTerminal}
@@ -2564,7 +2567,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden} inert={archiveMotion.mainInert}>
               <SessionTree
                 {...treeProps}
-                rows={model.rows}
+                rows={sessionTreeRows}
                 emptyLabel={t("sidebar.noSessions")}
                 reveal={treeReveal}
                 onRevealHandled={handleRevealHandled}
@@ -2692,7 +2695,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 none. The list comes from the loaded project
                 (not just its forCwd), so switching between worktrees of one
                 project keeps the box instead of flickering while it refetches. */}
-            <ProjectWorktreePicker
+            {!hideWorkspacePicker && <ProjectWorktreePicker
               handleRef={filesPickerRef}
               layout={stacked ? "row" : "stacked"}
               context={newSessionContext ?? { project: null, worktrees: null, currentWorktreePath: null, projects: projectChoiceList }}
@@ -2709,7 +2712,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               onRefreshWorktrees={refreshWorktrees}
               onCreateWorktree={createWorktree}
               onRemoveWorktree={handleRemoveWorktree}
-            />
+            />}
             {/* The files tab's keys, under the picker. Always the same
                 buttons in the same places: the changes view stays (disabled)
                 while there is nothing changed, so nothing moves as an agent

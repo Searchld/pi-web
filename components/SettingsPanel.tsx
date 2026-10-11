@@ -41,6 +41,8 @@ interface Props {
   cwd: string | null;
   sessionId: string | null;
   initialSection: SettingsSection;
+  /** 企业模式由角色返回的可进入设置页；本地模式传入全部页签。 */
+  allowedSections: readonly SettingsSection[];
   onClose: () => void;
   onSessionReloaded: () => void;
   quoteSelectionEnabled: boolean;
@@ -441,6 +443,7 @@ export function SettingsPanel({
   cwd,
   sessionId,
   initialSection,
+  allowedSections,
   onClose,
   onSessionReloaded,
   quoteSelectionEnabled,
@@ -450,9 +453,10 @@ export function SettingsPanel({
   onProjectTrustChanged,
 }: Props) {
   const { t } = useI18n();
-  const [section, setSection] = useState<SettingsSection>(initialSection);
+  const initialAllowedSection = allowedSections.includes(initialSection) ? initialSection : allowedSections[0] ?? "general";
+  const [section, setSection] = useState<SettingsSection>(initialAllowedSection);
   const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
-    () => new Set([section]),
+    () => new Set([initialAllowedSection]),
   );
   // Which sections need a project is decided once, in lib/settings-navigation.ts.
   const sections: { id: SettingsSection; label: string; requiresProject: boolean }[] = ([
@@ -462,10 +466,18 @@ export function SettingsPanel({
     { id: "agents", label: t("common.agents") },
     { id: "plugins", label: t("common.plugins") },
     { id: "mcp", label: t("settings.mcp") },
-  ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
+  ] as const)
+    .filter((item) => allowedSections.includes(item.id))
+    .map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
   const sectionRequiresProject = settingsSectionRequiresProject(section);
 
-  useEffect(() => setLastSettingsSection(initialSection), [initialSection]);
+  useEffect(() => {
+    const next = allowedSections.includes(initialSection) ? initialSection : allowedSections[0];
+    if (!next) return;
+    setSection(next);
+    setMountedSections((current) => new Set(current).add(next));
+    setLastSettingsSection(next);
+  }, [allowedSections, initialSection]);
 
   // Bubble phase, unless something nearer handled the key. The trust dialog,
   // which opens above Settings, takes Escape in the capture phase and stops it,
@@ -483,18 +495,23 @@ export function SettingsPanel({
 
   useEffect(() => {
     if (cwd || !sectionRequiresProject) return;
-    setSection("general");
-    setMountedSections((current) => new Set(current).add("general"));
-    setLastSettingsSection("general");
-  }, [cwd, sectionRequiresProject]);
+    const fallback = allowedSections.includes("general")
+      ? "general"
+      : allowedSections.find((item) => !settingsSectionRequiresProject(item));
+    if (!fallback) return;
+    setSection(fallback);
+    setMountedSections((current) => new Set(current).add(fallback));
+    setLastSettingsSection(fallback);
+  }, [allowedSections, cwd, sectionRequiresProject]);
 
   const activateSection = (nextSection: SettingsSection) => {
+    if (!allowedSections.includes(nextSection)) return;
     setMountedSections((current) => new Set(current).add(nextSection));
     setSection(nextSection);
     setLastSettingsSection(nextSection);
   };
 
-  const sectionHost = (id: SettingsSection, content: ReactNode) => mountedSections.has(id) ? (
+  const sectionHost = (id: SettingsSection, content: ReactNode) => allowedSections.includes(id) && mountedSections.has(id) ? (
     <div
       key={id}
       hidden={section !== id}

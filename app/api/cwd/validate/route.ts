@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { statSync, type Stats } from "fs";
+import { mkdir } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
 import { resolveProject } from "@/lib/worktree";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+import { requireRuoyiChatAccess } from "@/lib/ruoyi-access";
 
 function normalizeCwd(cwd: string): string {
   if (cwd === "~") return homedir();
@@ -17,7 +20,14 @@ function normalizeCwd(cwd: string): string {
 export async function POST(req: Request) {
   try {
     const body = await req.json() as { cwd?: unknown };
-    const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
+    let cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
+    if (isRuoyiIntegrationEnabled()) {
+      const access = await requireRuoyiChatAccess(req);
+      if (access instanceof NextResponse) return access;
+      if (!access) return NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 500 });
+      cwd = access.workspace;
+      await mkdir(cwd, { recursive: true });
+    }
 
     if (!cwd) {
       return NextResponse.json({ error: "Path is required" }, { status: 400 });

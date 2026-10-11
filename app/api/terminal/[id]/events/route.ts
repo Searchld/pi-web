@@ -1,4 +1,6 @@
-import { hasTerminal, subscribeTerminal, type TerminalEvent } from "@/lib/terminal-manager";
+import { hasTerminal, isTerminalOwnedBy, subscribeTerminal, type TerminalEvent } from "@/lib/terminal-manager";
+import { requireRuoyiTerminalOwnerAccess } from "@/lib/ruoyi-terminal-access";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -7,7 +9,12 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const access = await requireRuoyiTerminalOwnerAccess(req);
+  if (access instanceof NextResponse) return access;
   const { id } = await params;
+  if (access && !isTerminalOwnedBy(id, access.identity.userId, access.workspace)) {
+    return new Response("Terminal not found", { status: 404 });
+  }
   if (!hasTerminal(id)) return new Response("Terminal not found", { status: 404 });
   const cursor = req.headers.get("last-event-id") ?? new URL(req.url).searchParams.get("after");
   const after = cursor !== null && /^\d+$/.test(cursor) && Number.isSafeInteger(Number(cursor))

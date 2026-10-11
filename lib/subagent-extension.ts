@@ -76,6 +76,7 @@ export interface SubagentExtensionRuntime {
   start(request: StartSubagentRequest): Promise<SubagentExecution>;
   resume(request: ResumeSubagentRequest): Promise<SubagentExecution>;
   get(sessionId: string): Promise<SubagentRunInfo | null>;
+  isOwnedByParent?(parentSessionId: string, sessionId: string): Promise<boolean>;
   steer(sessionId: string, message: string): Promise<void>;
   notifyParent(run: SubagentRunInfo): Promise<void>;
   markResultConsumed(run: Pick<SubagentRunInfo, "sessionId" | "completedAt">): void;
@@ -83,6 +84,7 @@ export interface SubagentExtensionRuntime {
 
 export type SubagentProfileProvider = () => readonly SubagentProfile[];
 export type SubagentEnabledProvider = () => boolean;
+export type SubagentToolNamesProvider = () => readonly string[] | undefined;
 
 function agentTypeDescription(profiles: readonly SubagentProfile[]): string {
   const available = profiles.filter((profile) => profile.enabled);
@@ -149,16 +151,22 @@ export function createSubagentExtension(
   runtime: SubagentExtensionRuntime,
   getProfiles: SubagentProfileProvider,
   isEnabled: SubagentEnabledProvider = () => true,
+  getAllowedToolNames: SubagentToolNamesProvider = () => undefined,
 ): InlineExtension {
   return {
     name: HOST_SUBAGENT_EXTENSION_NAME,
     hidden: true,
     factory: (pi) => {
       if (!isEnabled()) return;
+      const isAllowed = (name: string) => {
+        const allowed = getAllowedToolNames();
+        return allowed === undefined || allowed.includes(name);
+      };
       const profiles = getProfiles().filter((profile) => profile.enabled);
       const profileNames = profiles.map((profile) => profile.name);
       const availableTypes = profileNames.length > 0 ? profileNames.join(", ") : "none";
-      pi.registerTool(defineTool({
+      const defaultProfile = profiles[0]?.name ?? "general-purpose";
+      if (isAllowed("Agent")) pi.registerTool(defineTool({
         name: "Agent",
         label: "Agent",
         description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
@@ -171,7 +179,7 @@ export function createSubagentExtension(
         ],
         executionMode: "parallel",
         parameters: Type.Object({
-          subagent_type: Type.Optional(Type.String({ description: `Configured agent profile. Available types: ${availableTypes}. Default: general-purpose.` })),
+          subagent_type: Type.Optional(Type.String({ description: `Configured agent profile. Available types: ${availableTypes}. Default: ${defaultProfile}.` })),
           prompt: Type.String({ description: "The complete task for the subagent." }),
           resume: Type.Optional(Type.String({ description: "Existing session ID to continue with its current profile, model, thinking, and context. Omit new-session options." })),
           input_files: Type.Optional(Type.Array(Type.String(), {
@@ -184,6 +192,9 @@ export function createSubagentExtension(
           isolation: Type.Optional(Type.String({ description: 'Set to "worktree" to run the subagent in an isolated git worktree.' })),
         }),
         async execute(toolCallId, params, signal, onUpdate, ctx) {
+          if (!isAllowed("Agent")) {
+            return { content: [{ type: "text", text: "当前账户未获得启动子 Agent 权限。" }], details: undefined, isError: true };
+          }
           try {
             const resume = params.resume?.trim();
             if (resume) {
@@ -213,7 +224,7 @@ export function createSubagentExtension(
               : await runtime.start({
               parentContext: ctx,
               parentToolCallId: toolCallId,
-              profile: params.subagent_type ?? "general-purpose",
+              profile: params.subagent_type ?? defaultProfile,
               task: params.prompt,
               ...(params.input_files ? { inputFiles: params.input_files } : {}),
               description: params.description,
@@ -258,7 +269,7 @@ export function createSubagentExtension(
         },
       }));
 
-      pi.registerTool(defineTool({
+      if (isAllowed("get_subagent_result")) pi.registerTool(defineTool({
         name: "get_subagent_result",
         label: "Get agent result",
         description: "Check an inspectable subagent session and retrieve its latest result.",
@@ -267,7 +278,14 @@ export function createSubagentExtension(
           agent_id: Type.String({ description: "Subagent session ID." }),
           wait: Type.Optional(Type.Boolean({ description: "Wait until the subagent finishes." })),
         }),
-        async execute(_toolCallId, params, signal) {
+        async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+          if (!isAllowed("get_subagent_result")) {
+            return { content: [{ type: "text", text: "当前账户未获得获取子 Agent 结果权限。" }], details: undefined, isError: true };
+          }
+          const parentSessionId = ctx.sessionManager.getSessionId();
+          if (runtime.isOwnedByParent && !await runtime.isOwnedByParent(parentSessionId, params.agent_id)) {
+            return { content: [{ type: "text", text: `Subagent not found: ${params.agent_id}` }], details: undefined, isError: true };
+          }
           let run = await runtime.get(params.agent_id);
           if (!run) return { content: [{ type: "text", text: `Subagent not found: ${params.agent_id}` }], details: undefined, isError: true };
           while (params.wait && (run.status === "starting" || run.status === "running")) {
@@ -297,7 +315,7 @@ export function createSubagentExtension(
         },
       }));
 
-      pi.registerTool(defineTool({
+      if (isAllowed("steer_subagent")) pi.registerTool(defineTool({
         name: "steer_subagent",
         label: "Steer agent",
         description: "Send a steering message to a currently running subagent session.",
@@ -306,8 +324,15 @@ export function createSubagentExtension(
           agent_id: Type.String({ description: "Subagent session ID." }),
           message: Type.String({ description: "Instruction to inject after the current tool execution." }),
         }),
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+          if (!isAllowed("steer_subagent")) {
+            return { content: [{ type: "text", text: "当前账户未获得引导子 Agent 权限。" }], details: undefined, isError: true };
+          }
           try {
+            const parentSessionId = ctx.sessionManager.getSessionId();
+            if (runtime.isOwnedByParent && !await runtime.isOwnedByParent(parentSessionId, params.agent_id)) {
+              throw new Error(`Subagent not found: ${params.agent_id}`);
+            }
             await runtime.steer(params.agent_id, params.message);
             return { content: [{ type: "text", text: `Steering message sent to ${params.agent_id}.` }], details: undefined };
           } catch (error) {

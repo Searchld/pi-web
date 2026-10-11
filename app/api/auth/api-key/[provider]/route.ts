@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,9 @@ type Params = { params: Promise<{ provider: string }> };
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }
 export async function POST(req: Request, { params }: Params) {
+  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "企业模式不允许在 Pi Web 管理供应商密钥" }, { status: 403 });
+  const denied = await requireRuoyiSettingsAccess(req, "models");
+  if (denied) return denied;
   const { provider } = await params;
   try {
     const { apiKey } = await req.json() as { apiKey?: string };
@@ -49,7 +54,10 @@ export async function POST(req: Request, { params }: Params) {
 }
 
 // DELETE /api/auth/api-key/[provider] — removes stored API key
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: Request, { params }: Params) {
+  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "企业模式不允许在 Pi Web 管理供应商密钥" }, { status: 403 });
+  const denied = await requireRuoyiSettingsAccess(req, "models");
+  if (denied) return denied;
   const { provider } = await params;
   try {
     const removal = await removeStoredCredentialIfType(provider, "api_key");

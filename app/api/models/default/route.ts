@@ -13,6 +13,8 @@ import { resolveVisibleModels } from "@/lib/model-scope";
 import { withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,9 @@ function parseEdit(body: DefaultPreferencesRequest): DefaultPreferencesEdit | nu
  * so it goes through the same allow-list as `/api/models`.
  */
 export async function PUT(req: Request) {
+  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "RuoYi 模式下模型默认值由系统策略统一管理" }, { status: 403 });
+  const denied = await requireRuoyiSettingsAccess(req, "models");
+  if (denied) return denied;
   let body: DefaultPreferencesRequest;
   try {
     body = await req.json() as DefaultPreferencesRequest;

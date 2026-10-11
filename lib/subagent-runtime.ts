@@ -19,6 +19,7 @@ import {
 } from "./subagent-extension";
 import {
   readSubagentRun,
+  readSubagentSessionResources,
   resolveSubagentProfile,
   SUBAGENT_META_TYPE,
   SUBAGENT_STATUS_TYPE,
@@ -28,6 +29,7 @@ import {
   subagentToolOptions,
   withSubagentExtensionTools,
   type SubagentMetadata,
+  type SubagentProfile,
   type SubagentResultMetadata,
   type SubagentRunInfo,
 } from "./subagents";
@@ -42,6 +44,8 @@ import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-sett
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
+import type { RuoyiModelPolicy } from "./ruoyi-tool-policy";
+import { createRuoyiQuotaExtension } from "./ruoyi-quota-extension";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -50,6 +54,11 @@ interface HostSession {
   isAlive(): boolean;
   isRunning(): boolean;
   waitUntilReady(): Promise<void>;
+  isSubagentProfileAllowed?(profile: string): boolean;
+  isRuoyiSubagentToolEnabled?(name: string): boolean;
+  getRuoyiCodingToolNames?(): readonly string[] | undefined;
+  getRuoyiAuthorization?(): string | undefined;
+  getRuoyiModelPolicy?(): RuoyiModelPolicy | undefined;
 }
 
 export interface SubagentRuntimeDependencies {
@@ -62,11 +71,19 @@ export interface SubagentRuntimeDependencies {
   resolveSessionPath(sessionId: string): Promise<string | null>;
   invalidateSessionList(): void;
   isBuiltInSubagentsEnabled?(): boolean;
+  /** 由宿主在多租户等模式下收窄，不能由 profile 扩大父会话的权限。 */
+  isSubagentAllowed?(
+    parent: HostSession,
+    profile: Pick<SubagentProfile, "name" | "tools" | "loadSkills" | "loadExtensions" | "codemode">,
+  ): boolean;
+  /** RuoYi 会话将子 Agent 的内置工具收窄为父会话当前的已授权集合。 */
+  getSubagentAllowedTools?(parent: HostSession): readonly string[] | undefined;
 }
 
 export interface SubagentController {
   readonly extensionRuntime: SubagentExtensionRuntime;
   get(sessionId: string): Promise<SubagentRunInfo | null>;
+  isOwnedByParent(parentSessionId: string, sessionId: string): Promise<boolean>;
   steer(sessionId: string, message: string): Promise<void>;
   abort(sessionId: string): Promise<void>;
 }
@@ -214,46 +231,72 @@ export function createSubagentController(
     const parent = dependencies.getSession(parentSessionId);
     if (!parent?.isAlive()) throw new Error("Parent session is no longer available");
     if (!parent.sessionFile) throw new Error("Parent session must be persisted before starting a subagent");
-
     let isolatedWorktree: { path: string; branch: string } | undefined;
     try {
       const profile = resolveSubagentProfile(parent.cwd, request.profile);
       if (!profile) throw new Error(`Unknown or disabled subagent profile: ${request.profile}`);
+      const allowedTools = dependencies.getSubagentAllowedTools?.(parent);
+      const isRuoyiSubagent = allowedTools !== undefined;
+      // 企业会话不让配置文件绕开 RuoYi：子 Agent 只能继承父会话已获授权的内置工具，
+      // 并禁用用户扩展、技能与 Code mode，防止从未纳管的入口扩大能力。
+      const effectiveProfile = allowedTools === undefined ? profile : {
+        ...profile,
+        tools: profile.tools.filter((tool) => allowedTools.includes(tool)),
+        loadSkills: false,
+        loadExtensions: false,
+        codemode: "off" as const,
+        skills: [],
+        extensions: [],
+      };
+      if (dependencies.isSubagentAllowed && !dependencies.isSubagentAllowed(parent, effectiveProfile)) {
+        throw new Error("当前系统权限不允许启动该子代理");
+      }
 
-      const runInBackground = request.runInBackground ?? profile.runInBackground;
-      const isolation = profile.isolation === "off" ? undefined : request.isolation ?? profile.isolation;
+      const runInBackground = request.runInBackground ?? effectiveProfile.runInBackground;
+      const isolation = effectiveProfile.isolation === "off" ? undefined : request.isolation ?? effectiveProfile.isolation;
+      if (isRuoyiSubagent && isolation === "worktree") {
+        throw new Error("RuoYi 模式不允许子 Agent 使用 worktree 隔离");
+      }
       if (isolation === "worktree") {
         isolatedWorktree = await addWorktree(parent.cwd, `pi-web-agent-${randomUUID()}`);
       }
       const childCwd = isolatedWorktree?.path ?? parent.cwd;
-      const inheritContext = profile.inheritContext;
+      const sessionManager = isolatedWorktree
+        ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
+        : SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
+      const inheritContext = effectiveProfile.inheritContext;
       // `parseProfileFile` already floors a positive profile `max_turns`, so it is an integer or absent.
-      const turnLimit = profile.maxTurns;
-      const thinking = profile.thinking ?? parent.inner.agent.state?.thinkingLevel;
+      const turnLimit = effectiveProfile.maxTurns;
+      const thinking = effectiveProfile.thinking ?? parent.inner.agent.state?.thinkingLevel;
       if (thinking && !THINKING_LEVELS.has(thinking as ThinkingLevel)) {
         throw new Error(`Invalid subagent thinking level: ${thinking}`);
       }
 
       const agentDir = getAgentDir();
       const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
+      const ruoyiModelPolicy = isRuoyiSubagent ? parent.getRuoyiModelPolicy?.() : undefined;
+      const ruoyiAuthorization = isRuoyiSubagent ? parent.getRuoyiAuthorization?.() : undefined;
+      if (isRuoyiSubagent && (!ruoyiModelPolicy || !ruoyiAuthorization || ruoyiModelPolicy.models.length === 0)) {
+        throw new Error("当前账户未获得子 Agent 模型权限");
+      }
       const settingsManager = SettingsManager.create(childCwd, agentDir);
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
       const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? []);
       const promptPlan = buildSubagentPromptPlan({
-        profileSystemPrompt: profile.systemPrompt,
-        tools: profile.tools,
-        loadSkills: profile.loadSkills,
-        loadExtensions: profile.loadExtensions,
-        promptMode: profile.promptMode,
+        profileSystemPrompt: effectiveProfile.systemPrompt,
+        tools: effectiveProfile.tools,
+        loadSkills: effectiveProfile.loadSkills,
+        loadExtensions: effectiveProfile.loadExtensions,
+        promptMode: effectiveProfile.promptMode,
         task: appendSubagentInputFiles(request.task, inputFiles),
         inheritedParentContext,
       });
       const parentCodemodeEnabled = parent.inner.getActiveToolNames().includes("codemode");
-      const wantsCodemode = profile.codemode === "on"
-        || (profile.codemode === "inherit" && parentCodemodeEnabled);
-      if (promptPlan.chatOnly && profile.codemode === "on") {
+      const wantsCodemode = effectiveProfile.codemode === "on"
+        || (effectiveProfile.codemode === "inherit" && parentCodemodeEnabled);
+      if (promptPlan.chatOnly && effectiveProfile.codemode === "on") {
         throw new Error("Code mode cannot be enabled for a chat-only subagent profile");
       }
       // A chat-only profile remains chat-only when inheritance is selected. An explicit `on`
@@ -262,8 +305,8 @@ export function createSubagentController(
       const chatOnly = promptPlan.chatOnly;
       const { appendSystemPrompt, delegatedTask } = promptPlan;
       const skillsBinding = createSubagentSkillsBinding({
-        loadSkills: profile.loadSkills,
-        skills: profile.skills,
+        loadSkills: effectiveProfile.loadSkills,
+        skills: effectiveProfile.skills,
         exactSystemPrompt: promptPlan.exactSystemPrompt,
       });
       const codemodeExtension = codemodeEnabled
@@ -276,6 +319,11 @@ export function createSubagentController(
       const extensionFactories = [
         ...(codemodeExtension ? [codemodeExtension] : []),
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
+        ...(isRuoyiSubagent ? [createRuoyiQuotaExtension(
+          () => ruoyiAuthorization,
+          () => ruoyiModelPolicy,
+          sessionManager.getSessionId(),
+        )] : []),
       ];
       if (!chatOnly) initTheme();
       const services = await createAgentSessionServices({
@@ -284,8 +332,16 @@ export function createSubagentController(
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
-          ...subagentExtensionLoaderOptions(profile),
+          ...subagentExtensionLoaderOptions(effectiveProfile),
           ...skillsBinding.loaderOptions,
+          ...(isRuoyiSubagent ? {
+            noExtensions: true,
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            noContextFiles: true,
+            systemPrompt: " ",
+          } : {}),
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
           noThemes: true,
@@ -298,7 +354,7 @@ export function createSubagentController(
             : {}),
           appendSystemPrompt,
         },
-        ...((profile.loadExtensions || profile.loadSkills || codemodeEnabled)
+        ...((effectiveProfile.loadExtensions || effectiveProfile.loadSkills || codemodeEnabled)
           ? { resourceLoaderReloadOptions: projectTrustReloadOptions(childCwd, agentDir) }
           : {}),
       });
@@ -308,33 +364,30 @@ export function createSubagentController(
       }
 
       // `ext:` selectors that `disallowed_tools` cancels out leave an empty list, which admits none.
-      const allExtensionTools = profile.loadExtensions && profile.extensionTools === undefined;
-      const extensionToolNames = profile.loadExtensions
-        ? profile.extensionTools !== undefined
+      const allExtensionTools = effectiveProfile.loadExtensions && effectiveProfile.extensionTools === undefined;
+      const extensionToolNames = effectiveProfile.loadExtensions
+        ? effectiveProfile.extensionTools !== undefined
           ? selectSubagentExtensionTools(
             services.resourceLoader.getExtensions().extensions,
-            profile.extensionTools,
-            profile.disallowedExtensionTools,
+            effectiveProfile.extensionTools,
+            effectiveProfile.disallowedExtensionTools,
           )
           : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
       const activeTools = resolveShellTools(
-        withSubagentExtensionTools(profile.tools, extensionToolNames),
+        withSubagentExtensionTools(effectiveProfile.tools, extensionToolNames),
         settingsManager.getDefaultTools(),
       );
       if (codemodeEnabled && !activeTools.includes("codemode")) activeTools.push("codemode");
 
-      const sessionManager = isolatedWorktree
-        ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
-        : SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
       const createdAt = new Date().toISOString();
       const metadata: SubagentMetadata = {
         version: 1,
         parentSessionId,
         parentSessionPath: parent.sessionFile,
         parentToolCallId: request.parentToolCallId,
-        profile: profile.name,
-        description: request.description.trim() || profile.displayName,
+        profile: effectiveProfile.name,
+        description: request.description.trim() || effectiveProfile.displayName,
         task: request.task,
         runInBackground,
         createdAt,
@@ -343,11 +396,11 @@ export function createSubagentController(
           appendSystemPrompt: [...appendSystemPrompt],
           tools: [...activeTools],
           ...(codemodeEnabled ? { codemode: true as const } : {}),
-          loadSkills: profile.loadSkills,
-          ...(profile.skills !== undefined ? { skills: [...profile.skills] } : {}),
-          loadExtensions: profile.loadExtensions,
+          loadSkills: effectiveProfile.loadSkills,
+          ...(effectiveProfile.skills !== undefined ? { skills: [...effectiveProfile.skills] } : {}),
+          loadExtensions: effectiveProfile.loadExtensions,
           ...(allExtensionTools ? { allExtensionTools: true } : {}),
-          ...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
+          ...(effectiveProfile.extensions !== undefined ? { extensions: [...effectiveProfile.extensions] } : {}),
           ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
         },
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
@@ -355,12 +408,19 @@ export function createSubagentController(
       sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
       sessionManager.appendSessionInfo(metadata.description);
 
-      const requestedModel = parseSubagentModel(parentModelRuntime, request.model ?? profile.model);
+      const requestedModel = parseSubagentModel(parentModelRuntime, request.model ?? effectiveProfile.model);
       const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
+      const selectedModel = requestedModel ?? parentModel;
+      if (!selectedModel) throw new Error("子 Agent 未找到可用模型");
+      if (isRuoyiSubagent && !ruoyiModelPolicy!.models.some((model) =>
+        model.provider === selectedModel.provider && model.modelId === selectedModel.id,
+      )) {
+        throw new Error("当前账户未获得该子 Agent 模型权限");
+      }
       const { session: inner } = await createAgentSessionFromServices({
         services,
         sessionManager,
-        model: requestedModel ?? parentModel,
+        model: selectedModel,
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
         ...subagentToolOptions({ tools: activeTools, allExtensionTools }),
       });
@@ -377,7 +437,7 @@ export function createSubagentController(
         sessionPath: inner.sessionFile ?? sessionManager.getSessionFile() ?? "",
         parentSessionId,
         parentToolCallId: request.parentToolCallId,
-        profile: profile.name,
+        profile: effectiveProfile.name,
         description: metadata.description,
         task: request.task,
         runInBackground,
@@ -569,6 +629,18 @@ export function createSubagentController(
     if (!wrapper?.isAlive()) wrapper = await dependencies.reopenSession(request.sessionId, sessionPath);
     if (!wrapper.isAlive()) throw new Error("Subagent session is no longer available");
     if (wrapper.isRunning()) throw new Error("Subagent is already running");
+    const resources = readSubagentSessionResources(
+      wrapper.inner.sessionManager.getEntries() as unknown as SessionEntry[],
+    );
+    if (dependencies.isSubagentAllowed && !dependencies.isSubagentAllowed(parent, {
+      name: existing.profile,
+      tools: resources?.tools ?? [],
+      loadSkills: resources?.loadSkills ?? false,
+      loadExtensions: resources?.loadExtensions ?? false,
+      codemode: resources?.codemode ? "on" : "off",
+    })) {
+      throw new Error("当前系统权限不允许恢复该子代理");
+    }
 
     const runInBackground = request.runInBackground ?? existing.runInBackground;
     const initialRun: SubagentRunInfo = {
@@ -695,6 +767,10 @@ export function createSubagentController(
     await wrapper.inner.steer(message.trim());
   }
 
+  async function isOwnedByParent(parentSessionId: string, sessionId: string): Promise<boolean> {
+    return (await get(sessionId))?.parentSessionId === parentSessionId;
+  }
+
   async function notifyParent(run: SubagentRunInfo): Promise<void> {
     if (takeResultConsumed(run)) return;
     let parent = dependencies.getSession(run.parentSessionId);
@@ -736,8 +812,9 @@ export function createSubagentController(
   }
 
   return {
-    extensionRuntime: { start, resume, get, steer, notifyParent, markResultConsumed },
+    extensionRuntime: { start, resume, get, isOwnedByParent, steer, notifyParent, markResultConsumed },
     get,
+    isOwnedByParent,
     steer,
     abort,
   };

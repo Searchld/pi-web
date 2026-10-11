@@ -14,6 +14,8 @@ import {
   type SessionUiStateRefusalReason,
   type SessionUiStateResponse,
 } from "@/lib/session-ui-state-shared";
+import { isRuoyiIntegrationEnabled, ruoyiSessionUiStatePath } from "@/lib/ruoyi-identity";
+import { requireRuoyiChatAccess } from "@/lib/ruoyi-access";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +32,15 @@ function refusal(status: number, reason: SessionUiStateRefusalReason, error: str
 }
 
 // GET /api/sessions/ui-state
-export async function GET() {
-  return NextResponse.json({ state: readSessionUiState() } satisfies SessionUiStateResponse, { headers: NO_STORE });
+export async function GET(req: Request) {
+  let statePath: string | undefined;
+  if (isRuoyiIntegrationEnabled()) {
+    const access = await requireRuoyiChatAccess(req);
+    if (access instanceof NextResponse) return access;
+    if (!access) return NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 500, headers: NO_STORE });
+    statePath = ruoyiSessionUiStatePath(access.identity.userId);
+  }
+  return NextResponse.json({ state: readSessionUiState(statePath) } satisfies SessionUiStateResponse, { headers: NO_STORE });
 }
 
 // POST /api/sessions/ui-state - one change; answers with the state after it.
@@ -41,6 +50,13 @@ export async function POST(req: Request) {
   }
   if (!hasJsonContentType(req)) {
     return refusal(415, "content-type", "Content-Type must be application/json");
+  }
+  let statePath: string | undefined;
+  if (isRuoyiIntegrationEnabled()) {
+    const access = await requireRuoyiChatAccess(req);
+    if (access instanceof NextResponse) return access;
+    if (!access) return NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 500, headers: NO_STORE });
+    statePath = ruoyiSessionUiStatePath(access.identity.userId);
   }
 
   let body: unknown;
@@ -57,7 +73,7 @@ export async function POST(req: Request) {
 
   const { request } = parsed;
   try {
-    const state = await updateSessionUiState(request);
+    const state = await updateSessionUiState(request, statePath);
     // A name with no room left was not stored (nothing was written): say so,
     // rather than answer with a state that quietly lacks it.
     if (request.action === "rename-project" && request.name !== null && storedProjectName(state, request.projectKey) !== request.name) {

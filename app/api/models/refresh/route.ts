@@ -1,4 +1,6 @@
 import { shareModelCatalogRefresh } from "@/lib/model-catalog-refresh";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,9 @@ export const dynamic = "force-dynamic";
  * there is no second shape of the model list to keep in agreement.
  */
 export async function POST(req: Request) {
+  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "RuoYi 模式下不允许刷新宿主机模型目录" }, { status: 403 });
+  const denied = await requireRuoyiSettingsAccess(req, "models");
+  if (denied) return denied;
   let provider: string | undefined;
   try {
     const body = await req.json() as { provider?: unknown };

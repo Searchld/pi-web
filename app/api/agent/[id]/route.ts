@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
+import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
+import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
+
+/** 套餐变更后，旧会话不得继续沿用已失效模型；优先回退到套餐默认模型。 */
+async function reconcileRuoyiModel(session: { inner: { model?: { provider: string; id: string } }; send(command: unknown): Promise<unknown> }, policy: NonNullable<Awaited<ReturnType<typeof loadRuoyiAgentPolicy>>>) {
+  const current = session.inner.model;
+  if (current && policy.modelPolicy.models.some((model) => model.provider === current.provider && model.modelId === current.id)) return;
+  const fallback = policy.modelPolicy.models.find((model) => model.modelCode === policy.modelPolicy.defaultModelCode)
+    ?? policy.modelPolicy.models[0];
+  if (!fallback) throw new RuoyiToolAuthorizationError("当前账户未配置可用模型套餐");
+  await session.send({ type: "set_model", provider: fallback.provider, modelId: fallback.modelId });
+}
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -8,6 +20,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
   let commandType: string | undefined;
   let promptAccepted = false;
 
@@ -22,10 +36,15 @@ export async function POST(
       throw new Error("toolNames must be an array of strings");
     }
     const toolNames = requestedToolNames as string[] | undefined;
+    const ruoyiPolicy = access ? await loadRuoyiAgentPolicy(access.identity) : undefined;
+    if (access && body.type === "bash" && !ruoyiPolicy!.toolNames.includes("bash")) {
+      throw new RuoyiToolAuthorizationError("当前账户未获得终端命令权限");
+    }
 
     // Fast path: already-running session
     const existing = getRpcSession(id);
     if (body.type === "set_tools") {
+      if (access) throw new RuoyiToolAuthorizationError("Agent 工具由系统权限统一管理");
       const filePath = existing?.sessionFile || await resolveSessionPath(id) || undefined;
       if (!existing?.isAlive() && !filePath) {
         return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -37,7 +56,21 @@ export async function POST(
       });
     }
     if (existing?.isAlive()) {
-      const result = await existing.send(body);
+      let session = existing;
+      if (access) {
+        existing.setRuoyiAuthorization(access.identity.authorization);
+        existing.setRuoyiPolicy(ruoyiPolicy!);
+        if (!sameRuoyiCodingToolNames(existing.getActiveCodingToolNames(), ruoyiPolicy!.toolNames)) {
+          const tightened = await setRpcSessionTools(id, existing.sessionFile || undefined, ruoyiPolicy!.toolNames, {
+            ruoyiAuthorization: access.identity.authorization,
+            ruoyiPolicy,
+            forceToolNames: true,
+          });
+          session = tightened.session;
+        }
+        await reconcileRuoyiModel(session, ruoyiPolicy!);
+      }
+      const result = await session.send(body);
       promptAccepted = body.type === "prompt";
       return NextResponse.json({ success: true, data: result });
     }
@@ -52,8 +85,12 @@ export async function POST(
       }, { status: 404 });
     }
 
+    const initialToolNames = access ? ruoyiPolicy!.toolNames : toolNames;
     const { session } = await startRpcSession(id, filePath, undefined, {
-      ...(toolNames !== undefined ? { toolNames } : {}),
+      ...(initialToolNames !== undefined ? { toolNames: initialToolNames } : {}),
+      ...(access ? { ruoyiAuthorization: access.identity.authorization } : {}),
+      ...(ruoyiPolicy ? { ruoyiPolicy } : {}),
+      ...(access ? { forceToolNames: true } : {}),
     });
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
@@ -65,22 +102,25 @@ export async function POST(
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),
-    }, { status: 500 });
+    }, { status: error instanceof RuoyiToolAuthorizationError ? 403 : 500 });
   }
 }
 
 // GET /api/agent/[id] - Get current agent state
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
 
   try {
     const session = getRpcSession(id);
     if (!session || !session.isAlive()) {
       return NextResponse.json({ running: false });
     }
+    if (access) session.setRuoyiAuthorization(access.identity.authorization);
 
     const state = await session.send({ type: "get_state" });
     return NextResponse.json({ running: true, state });

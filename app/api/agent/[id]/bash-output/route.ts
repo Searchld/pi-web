@@ -8,19 +8,35 @@ import {
   resolveBashOutputPath,
 } from "@/lib/bash-output";
 import { isBashOutputPathReferencedBySession } from "@/lib/session-file-references";
+import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
+import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 
 // GET /api/agent/[id]/bash-output?path=<absPath>
 // Reads a bash output temp file referenced by this session. Inline display is
 // size-limited; download responses stream the file without buffering it.
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const access = await requireIntegrationSessionAccess(req, id);
+  if (access && isRuoyiAccessDenied(access)) return access;
+  if (access) {
+    try {
+      if (!(await loadRuoyiAgentPolicy(access.identity)).toolNames.includes("bash")) {
+        return NextResponse.json({ error: "当前账户未获得终端命令权限" }, { status: 403 });
+      }
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "读取 Agent 权限失败" },
+        { status: error instanceof RuoyiToolAuthorizationError ? 503 : 500 },
+      );
+    }
+  }
   let path: string | null = null;
   let download = false;
   try {
-    const url = new URL(_req.url);
+    const url = new URL(req.url);
     path = url.searchParams.get("path");
     download = url.searchParams.get("download") === "1";
   } catch {

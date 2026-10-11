@@ -46,6 +46,7 @@ import type { PiSdkInternals } from "@/lib/pi-sdk-internals";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { freshFolderTrustBreadth, getProjectTrustStatus, trustFreshFolderAndWrite } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,8 @@ async function validateProject(value: unknown): Promise<Project | Refusal> {
 
 // GET /api/mcp?cwd=<absolute project folder>
 export async function GET(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "mcp");
+  if (denied) return denied;
   const value = new URL(req.url).searchParams.get("cwd");
   let project: Project | undefined;
   if (value !== null) {
@@ -590,6 +593,8 @@ async function addServer(
 // `cwd` is the panel's project: required for a project server, and the
 // overview in the answer covers it.
 export async function POST(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "mcp");
+  if (denied) return denied;
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
   let body: unknown;

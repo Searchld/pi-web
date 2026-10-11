@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { withAppBasePath } from "@/lib/app-base-path";
 
 export function PwaRegistration() {
   useEffect(() => {
@@ -10,10 +11,10 @@ export function PwaRegistration() {
 
     const register = () => {
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
-      const scriptUrl = `/sw.js?v=${encodeURIComponent(appVersion)}`;
+      const scriptUrl = `${withAppBasePath("/sw.js")}?v=${encodeURIComponent(appVersion)}`;
 
       void navigator.serviceWorker.register(scriptUrl, {
-        scope: "/",
+        scope: withAppBasePath("/"),
         updateViaCache: "none",
       }).catch((error: unknown) => {
         console.error("Failed to register the Pi Web service worker:", error);

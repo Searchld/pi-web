@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState, type FormEvent } from "react";
 import { I18nProvider, useI18n } from "@/hooks/useI18n";
 import { safeLoginDestination } from "@/lib/login-destination";
+import { withAppBasePath } from "@/lib/app-base-path";
 
 function safeDestination(): string {
   const destination = new URLSearchParams(window.location.search).get("next");
@@ -49,7 +50,7 @@ function LoginForm() {
     <main className="web-login-page">
       <div className="web-login-shell">
         <header className="web-login-brand">
-          <Image src="/icons/apple-touch-icon.png" width={52} height={52} alt="" priority />
+          <Image src={withAppBasePath("/icons/apple-touch-icon.png")} width={52} height={52} alt="" priority />
           <div>
             <h1>Pi Web</h1>
             <p>{t("auth.prompt")}</p>

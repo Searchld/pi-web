@@ -3,6 +3,13 @@ import { existsSync } from "fs";
 import { addWorktree, findCurrentWorktreePath, listWorktrees, removeWorktree, resolveProject, worktreeRemovalRequiresForce } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+
+function ruoyiDisabled() {
+  return isRuoyiIntegrationEnabled()
+    ? NextResponse.json({ error: "RuoYi 模式不允许管理 Git worktree" }, { status: 403 })
+    : null;
+}
 
 /** Same gate as /api/files: only session cwds / project roots / explicitly
  *  allowed dirs may be inspected or mutated through this endpoint. */
@@ -16,6 +23,8 @@ async function checkCwdAllowed(cwd: string): Promise<NextResponse | null> {
 
 // GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, currentWorktreePath, worktrees }
 export async function GET(req: Request) {
+  const disabled = ruoyiDisabled();
+  if (disabled) return disabled;
   try {
     const cwd = new URL(req.url).searchParams.get("cwd");
     if (!cwd) {
@@ -55,6 +64,8 @@ export async function GET(req: Request) {
 
 // POST /api/worktrees  body: { cwd, branch }  →  { path, branch }
 export async function POST(req: Request) {
+  const disabled = ruoyiDisabled();
+  if (disabled) return disabled;
   try {
     const body = await req.json() as { cwd?: string; branch?: string };
     if (!body.cwd || typeof body.cwd !== "string") {
@@ -79,6 +90,8 @@ export async function POST(req: Request) {
 
 // DELETE /api/worktrees  body: { cwd, path, force? }
 export async function DELETE(req: Request) {
+  const disabled = ruoyiDisabled();
+  if (disabled) return disabled;
   try {
     const body = await req.json() as { cwd?: string; path?: string; force?: boolean };
     if (!body.cwd || typeof body.cwd !== "string") {

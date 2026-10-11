@@ -44,6 +44,9 @@ import {
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
+import { isRuoyiIntegrationEnabled } from "./ruoyi-identity";
+import { BUSINESS_AGENT_TOOL_PREFIX, createRuoyiBusinessToolsExtension } from "./ruoyi-business-tools";
+import type { RuoyiAgentPolicy } from "./ruoyi-tool-policy";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
@@ -51,6 +54,8 @@ import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension } from ".
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
+import { createRuoyiWorkspaceToolGuard } from "./ruoyi-workspace-tool-guard";
+import { createRuoyiQuotaExtension } from "./ruoyi-quota-extension";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import {
@@ -131,6 +136,12 @@ type AgentSessionWrapperOptions = {
   mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
+  /** RuoYi 当前请求已验证的令牌，仅保留在进程内，供业务工具调用时读取。 */
+  ruoyiAuthorizationRef?: { current?: string };
+  /** RuoYi 当前用户的工具策略，仅保留在进程内。 */
+  ruoyiPolicyRef?: { current: RuoyiAgentPolicy };
+  /** RuoYi 业务目录的中文名称。SDK 的 ToolInfo 不保证保留 label，故由包装层保存。 */
+  ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
 };
 
 /**
@@ -216,12 +227,22 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
 
 export interface RpcSessionStartOptions {
   toolNames?: string[];
+  /** 忽略旧会话持久化的选择，强制采用本次经服务端授权的工具集。 */
+  forceToolNames?: boolean;
   initialModel?: { provider: string; modelId: string };
   allowInitialModelFallback?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /** 已由请求层验证的 RuoYi 令牌，绝不写入会话文件。 */
+  ruoyiAuthorization?: string;
+  /** RuoYi 已按当前用户计算的工具清单，绝不写入会话文件。 */
+  ruoyiPolicy?: RuoyiAgentPolicy;
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+
+function sameToolNames(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((name) => right.includes(name));
+}
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
@@ -322,6 +343,9 @@ export class AgentSessionWrapper {
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
+  private readonly ruoyiAuthorizationRef?: { current?: string };
+  private readonly ruoyiPolicyRef?: { current: RuoyiAgentPolicy };
+  private readonly ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
@@ -350,6 +374,9 @@ export class AgentSessionWrapper {
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
+    this.ruoyiAuthorizationRef = options.ruoyiAuthorizationRef;
+    this.ruoyiPolicyRef = options.ruoyiPolicyRef;
+    this.ruoyiBusinessToolLabels = options.ruoyiBusinessToolLabels;
   }
 
   get sessionId(): string {
@@ -362,6 +389,31 @@ export class AgentSessionWrapper {
 
   get cwd(): string {
     return this.inner.sessionManager.getCwd();
+  }
+
+  setRuoyiAuthorization(authorization: string | undefined): void {
+    if (!this.ruoyiAuthorizationRef) return;
+    this.ruoyiAuthorizationRef.current = authorization?.trim() || undefined;
+  }
+
+  setRuoyiPolicy(policy: RuoyiAgentPolicy): void {
+    if (this.ruoyiPolicyRef) this.ruoyiPolicyRef.current = policy;
+  }
+
+  isRuoyiSubagentToolEnabled(name: string): boolean {
+    return !this.ruoyiPolicyRef || this.ruoyiPolicyRef.current.subagentToolNames.includes(name);
+  }
+
+  getRuoyiCodingToolNames(): readonly string[] | undefined {
+    return this.ruoyiPolicyRef?.current.toolNames;
+  }
+
+  getRuoyiAuthorization(): string | undefined {
+    return this.ruoyiAuthorizationRef?.current;
+  }
+
+  getRuoyiModelPolicy(): RuoyiAgentPolicy["modelPolicy"] | undefined {
+    return this.ruoyiPolicyRef?.current.modelPolicy;
   }
 
   get streamingMessage() {
@@ -583,6 +635,13 @@ export class AgentSessionWrapper {
   /** Apply a coding tool selection; `carry` defaults to the tools active now. */
   setActiveToolSelection(toolNames: string[], carry: readonly string[] = this.inner.getActiveToolNames()): void {
     this.inner.setActiveToolsByName(resolveActiveToolNames(this.inner, toolNames, carry));
+  }
+
+  /** 当前会话生效的编码工具集，用于 RuoYi 在权限变化后只收紧越权会话。 */
+  getActiveCodingToolNames(): string[] {
+    return [...new Set(this.inner.getActiveToolNames()
+      .filter((name) => CODING_TOOL_NAMES.includes(name))
+      .map((name) => name === "powershell" ? "bash" : name))];
   }
 
   /**
@@ -961,6 +1020,10 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
+        if (this.ruoyiPolicyRef?.current.modelPolicy.modelManaged
+          && !this.ruoyiPolicyRef.current.modelPolicy.models.some((entry) => entry.provider === provider && entry.modelId === modelId)) {
+          throw new Error(`当前账户未获得模型权限: ${provider}/${modelId}`);
+        }
         let model = this.inner.modelRuntime.getModel(provider, modelId);
         if (!model) {
           await this.inner.modelRuntime.refresh({ allowNetwork: false });
@@ -1168,6 +1231,9 @@ export class AgentSessionWrapper {
         const hidden = hiddenDeclarations instanceof Set ? hiddenDeclarations : new Set<unknown>();
         return all.map((t) => ({
           ...t,
+          ...(this.ruoyiBusinessToolLabels?.has(t.name)
+            ? { label: this.ruoyiBusinessToolLabels.get(t.name) }
+            : {}),
           description: declared.get(t.name) ?? t.description,
           active: active.has(t.name),
           declarationHidden: hidden.has(t.name),
@@ -2041,6 +2107,13 @@ const SUBAGENT_CONTROLLER = createSubagentController({
   resolveSessionPath,
   invalidateSessionList: invalidateSessionListCache,
   isBuiltInSubagentsEnabled,
+  // RuoYi 会话仅在当前策略明确允许 Agent 时才可启动或恢复子代理。
+  isSubagentAllowed: (parent, profile) => {
+    if (!(parent.isRuoyiSubagentToolEnabled?.("Agent") ?? true)) return false;
+    const allowedTools = parent.getRuoyiCodingToolNames?.();
+    return allowedTools === undefined || profile.tools.every((tool) => allowedTools.includes(tool));
+  },
+  getSubagentAllowedTools: (parent) => parent.getRuoyiCodingToolNames?.(),
 });
 
 export function getSubagentRun(sessionId: string) {
@@ -2136,6 +2209,7 @@ export async function setRpcSessionTools(
   sessionId: string,
   sessionFile: string | undefined,
   requestedToolNames: unknown,
+  options: Pick<RpcSessionStartOptions, "forceToolNames" | "ruoyiAuthorization" | "ruoyiPolicy"> = {},
 ): Promise<SetRpcSessionToolsResult> {
   const toolNames = requestedToolNames === undefined
     ? undefined
@@ -2150,7 +2224,7 @@ export async function setRpcSessionTools(
     const pending = closingRpcSessionWait(sessionId) ?? getLocks().get(sessionId);
     if (pending) {
       await pending.catch(() => undefined);
-      return setRpcSessionTools(sessionId, sessionFile, requestedToolNames);
+      return setRpcSessionTools(sessionId, sessionFile, requestedToolNames, options);
     }
     const manager = SessionManager.open(sessionFile, undefined);
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
@@ -2159,7 +2233,7 @@ export async function setRpcSessionTools(
     if (toolNames === undefined) appendClearedSessionToolSelection(manager);
     else appendSessionToolSelection(manager, toolNames);
     invalidateSessionListCache();
-    const started = await startRpcSession(sessionId, sessionFile, undefined);
+    const started = await startRpcSession(sessionId, sessionFile, undefined, options);
     return { session: started.session, sessionId: started.realSessionId, recreated: false };
   }
 
@@ -2179,6 +2253,8 @@ export async function setRpcSessionTools(
 
   if (toolNames !== undefined && !crossesChatOnlyBoundary) {
     existing.setActiveToolSelection(toolNames);
+    if (options.ruoyiAuthorization !== undefined) existing.setRuoyiAuthorization(options.ruoyiAuthorization);
+    if (options.ruoyiPolicy !== undefined) existing.setRuoyiPolicy(options.ruoyiPolicy);
     return { session: existing, sessionId, recreated: false };
   }
 
@@ -2191,7 +2267,7 @@ export async function setRpcSessionTools(
   await existing.shutdown();
 
   if (persistedFile) {
-    const started = await startRpcSession(sessionId, persistedFile, undefined);
+    const started = await startRpcSession(sessionId, persistedFile, undefined, options);
     return { session: started.session, sessionId: started.realSessionId, recreated: true };
   }
 
@@ -2202,6 +2278,8 @@ export async function setRpcSessionTools(
     ...(currentThinkingLevel && THINKING_LEVEL_NAMES.has(currentThinkingLevel as ThinkingLevel)
       ? { thinkingLevel: currentThinkingLevel as ThinkingLevel }
       : {}),
+    ...(options.ruoyiAuthorization !== undefined ? { ruoyiAuthorization: options.ruoyiAuthorization } : {}),
+    ...(options.ruoyiPolicy !== undefined ? { ruoyiPolicy: options.ruoyiPolicy } : {}),
   });
   return { session: started.session, sessionId: started.realSessionId, recreated: true };
 }
@@ -2345,7 +2423,7 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  const { initialModel, allowInitialModelFallback, thinkingLevel } = options;
+  const { initialModel, allowInitialModelFallback, thinkingLevel, forceToolNames } = options;
   const requestedToolNames = options.toolNames === undefined
     ? undefined
     : validateSessionToolSelection(options.toolNames);
@@ -2353,7 +2431,16 @@ export async function startRpcSession(
   const locks = getLocks();
 
   const existing = registry.get(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
+  if (existing?.isAlive()) {
+    if (forceToolNames && requestedToolNames !== undefined && !existing.isRunning()) {
+      appendSessionToolSelection(existing.inner.sessionManager, requestedToolNames);
+      existing.setActiveToolSelection(requestedToolNames);
+      invalidateSessionListCache();
+    }
+    if (options.ruoyiAuthorization !== undefined) existing.setRuoyiAuthorization(options.ruoyiAuthorization);
+    if (options.ruoyiPolicy !== undefined) existing.setRuoyiPolicy(options.ruoyiPolicy);
+    return { session: existing, realSessionId: sessionId };
+  }
 
   const inflight = locks.get(sessionId);
   if (inflight) return inflight;
@@ -2388,14 +2475,29 @@ export async function startRpcSession(
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionEntries);
-  const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
-  if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
+  const selectedToolNames = subagentResources?.tools
+    ?? (forceToolNames && requestedToolNames !== undefined ? requestedToolNames : persistedToolNames ?? requestedToolNames);
+  if (!subagentResources && requestedToolNames !== undefined && (
+    persistedToolNames === undefined || (forceToolNames && !sameToolNames(persistedToolNames, requestedToolNames))
+  )) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
   const subagentLoadsResources = Boolean(
     subagentResources?.loadExtensions || subagentResources?.loadSkills || subagentResources?.codemode,
   );
-  const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
+  const isRuoyiSession = isRuoyiIntegrationEnabled();
+  const controlledRuoyiSession = isRuoyiSession && !subagentResources;
+  // 令牌只保留在当前运行时；闭包让后续验证后的新令牌立即供已注册工具使用。
+  const ruoyiAuthorizationRef = isRuoyiSession ? { current: options.ruoyiAuthorization?.trim() || undefined } : undefined;
+  const ruoyiPolicyRef = isRuoyiSession && options.ruoyiPolicy
+    ? { current: options.ruoyiPolicy }
+    : undefined;
+  // SDK 的 ToolInfo 在部分版本中丢弃 label；保留目录映射仅用于工具页展示。
+  const ruoyiBusinessToolLabels = ruoyiAuthorizationRef ? new Map<string, string>() : undefined;
+  const ruoyiExtensionsEnabled = Boolean(
+    ruoyiPolicyRef?.current.businessToolsEnabled || ruoyiPolicyRef?.current.subagentToolNames.length,
+  );
+  const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources && !ruoyiExtensionsEnabled;
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -2421,7 +2523,9 @@ export async function startRpcSession(
     // before the SDK restores the saved model from the session file.
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
-    const trustReloadOptions = subagentResources
+    const trustReloadOptions = controlledRuoyiSession
+      ? undefined
+      : subagentResources
       ? subagentLoadsResources
         ? projectTrustReloadOptions(sessionCwd, agentDir)
         : undefined
@@ -2437,7 +2541,7 @@ export async function startRpcSession(
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
-    const builtins = subagentResources || chatOnly
+    const builtins = subagentResources || chatOnly || controlledRuoyiSession
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
     const subagentCodemode = subagentResources?.codemode
@@ -2477,12 +2581,50 @@ export async function startRpcSession(
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
           }
+        : controlledRuoyiSession
+          ? {
+              // 企业会话只装载本文件显式传入的受控扩展；用户、项目与全局资源
+              // 即使已在设置页配置，也不能把 MCP 或第三方工具带入本次运行。
+              noExtensions: true,
+              noSkills: true,
+              noPromptTemplates: true,
+              noThemes: true,
+              noContextFiles: true,
+              disabledBuiltinExtensions: ["mcp", "codemode", "tool-search"],
+              systemPrompt: " ",
+              extensionFactories: [
+                createRuoyiWorkspaceToolGuard(sessionCwd),
+                ...(ruoyiAuthorizationRef && ruoyiPolicyRef ? [createRuoyiQuotaExtension(
+                  () => ruoyiAuthorizationRef.current,
+                  () => ruoyiPolicyRef.current.modelPolicy,
+                  sessionManager.getSessionId(),
+                )] : []),
+                ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
+                  () => ruoyiAuthorizationRef.current,
+                  (tools) => {
+                    for (const tool of tools) ruoyiBusinessToolLabels!.set(`${BUSINESS_AGENT_TOOL_PREFIX}${tool.name}`, tool.displayName);
+                  },
+                )] : []),
+                createSubagentExtension(
+                  SUBAGENT_CONTROLLER.extensionRuntime,
+                  () => listSubagentProfiles(sessionCwd),
+                  () => Boolean(ruoyiPolicyRef?.current.subagentToolNames.length),
+                  () => ruoyiPolicyRef?.current.subagentToolNames,
+                ),
+              ],
+            }
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
+                () => ruoyiAuthorizationRef.current,
+                (tools) => {
+                  for (const tool of tools) ruoyiBusinessToolLabels!.set(`${BUSINESS_AGENT_TOOL_PREFIX}${tool.name}`, tool.displayName);
+                },
+              )] : []),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
@@ -2490,7 +2632,8 @@ export async function startRpcSession(
               createSubagentExtension(
                 SUBAGENT_CONTROLLER.extensionRuntime,
                 () => listSubagentProfiles(sessionCwd),
-                isBuiltInSubagentsEnabled,
+                () => !isRuoyiSession && isBuiltInSubagentsEnabled() || Boolean(ruoyiPolicyRef?.current.subagentToolNames.length),
+                () => ruoyiPolicyRef?.current.subagentToolNames,
               ),
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
@@ -2538,9 +2681,19 @@ export async function startRpcSession(
           : {}),
         ...(thinkingLevel ? { thinkingLevel } : {}),
       });
-    const startupModel = restoredModel && services.modelRuntime.hasConfiguredAuth(restoredModel.provider)
+    let startupModel = restoredModel && services.modelRuntime.hasConfiguredAuth(restoredModel.provider)
       ? restoredModel
       : initial?.model;
+    if (controlledRuoyiSession) {
+      const policyModels = ruoyiPolicyRef?.current.modelPolicy.models ?? [];
+      const policyDefault = policyModels.find((model) => model.modelCode === ruoyiPolicyRef?.current.modelPolicy.defaultModelCode)
+        ?? policyModels[0];
+      const allowed = new Set(policyModels.map((model) => `${model.provider}:${model.modelId}`));
+      const defaultModel = policyDefault
+        ? services.modelRuntime.getModel(policyDefault.provider, policyDefault.modelId)
+        : undefined;
+      startupModel = startupModel && allowed.has(`${startupModel.provider}:${startupModel.id}`) ? startupModel : defaultModel;
+    }
     const deferredModel = hasExistingMessages
       ? savedModel && !restoredModel
         ? findDeferredModel(services.modelRuntime, savedModel.provider, savedModel.modelId)
@@ -2553,12 +2706,17 @@ export async function startRpcSession(
         ? findDeferredModel(services.modelRuntime, defaultProvider, defaultModelId)
         : undefined)
       : undefined;
+    const scopedModels = controlledRuoyiSession
+      ? scope.scopedModels.filter((scoped) => (ruoyiPolicyRef?.current.modelPolicy.models ?? []).some((allowed) =>
+        allowed.provider === scoped.model.provider && allowed.modelId === scoped.model.id,
+      ))
+      : scope.scopedModels;
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
       ...(startupModel ? { model: startupModel } : {}),
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
-      ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
+      ...(scopedModels.length > 0 ? { scopedModels: [...scopedModels] } : {}),
       ...(subagentResources
         ? subagentToolOptions(subagentResources)
         : toolsOption !== undefined ? { tools: toolsOption } : {}),
@@ -2570,15 +2728,25 @@ export async function startRpcSession(
     // Pi Web just like in the `pi` CLI.
     if (!subagentResources && !chatOnly) {
       const initialToolNames = inner.getActiveToolNames();
+      if (controlledRuoyiSession) {
+        const allowed = new Set([
+          ...(selectedToolNames ?? []),
+          ...(ruoyiPolicyRef?.current.subagentToolNames ?? []),
+        ]);
+        inner.setActiveToolsByName(initialToolNames.filter((name) =>
+          allowed.has(name) || (ruoyiPolicyRef?.current.businessToolsEnabled && name.startsWith(BUSINESS_AGENT_TOOL_PREFIX)),
+        ));
+      } else {
       inner.setActiveToolsByName(
         resolveActiveToolNames(inner, selectedToolNames ?? initialToolNames, initialToolNames),
       );
+      }
     }
 
     skillsBinding?.setActiveToolsGetter(() => inner.getActiveToolNames());
     const exactSystemPrompt = subagentResources
       ? skillsBinding!.getExactSystemPrompt
-      : chatOnly
+      : chatOnly && !controlledRuoyiSession
         ? () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
@@ -2593,6 +2761,9 @@ export async function startRpcSession(
       suppressCompletionNotifications: Boolean(subagentResources),
       ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
+      ...(ruoyiAuthorizationRef ? { ruoyiAuthorizationRef } : {}),
+      ...(ruoyiPolicyRef ? { ruoyiPolicyRef } : {}),
+      ...(ruoyiBusinessToolLabels ? { ruoyiBusinessToolLabels } : {}),
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);

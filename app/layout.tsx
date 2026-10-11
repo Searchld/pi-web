@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
+import Script from "next/script";
 import { PwaRegistration } from "@/components/PwaRegistration";
+import { appBasePathRequestBootstrap, withAppBasePath } from "@/lib/app-base-path";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -18,18 +20,18 @@ export const metadata: Metadata = {
   title: "Pi Web",
   description: "Pi Web interface for the pi coding agent",
   applicationName: "Pi Web",
-  manifest: "/manifest.webmanifest",
+  manifest: withAppBasePath("/manifest.webmanifest"),
   icons: {
     icon: [
       {
-        url: "/icons/icon-192.png",
+        url: withAppBasePath("/icons/icon-192.png"),
         sizes: "192x192",
         type: "image/png",
       },
     ],
     apple: [
       {
-        url: "/icons/apple-touch-icon.png",
+        url: withAppBasePath("/icons/apple-touch-icon.png"),
         sizes: "180x180",
         type: "image/png",
       },
@@ -72,6 +74,9 @@ export default function RootLayout({
         />
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>
+        <Script id="pi-web-base-path-fetch" strategy="beforeInteractive">
+          {appBasePathRequestBootstrap()}
+        </Script>
         {children}
         <PwaRegistration />
       </body>

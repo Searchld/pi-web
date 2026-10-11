@@ -2,6 +2,8 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { samePath } from "@/lib/paths";
+import { requireRuoyiTerminalOwnerAccess } from "@/lib/ruoyi-terminal-access";
 import { createTerminal } from "@/lib/terminal-manager";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +11,8 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+    const access = await requireRuoyiTerminalOwnerAccess(req);
+    if (access instanceof NextResponse) return access;
     const body = await req.json() as { id?: unknown; cwd?: unknown; cols?: unknown; rows?: unknown };
     if (body.id !== undefined && (typeof body.id !== "string" || !/^[a-f0-9]{32}$/.test(body.id))) {
       return NextResponse.json({ error: "Invalid terminal id" }, { status: 400 });
@@ -16,11 +20,14 @@ export async function POST(req: Request) {
     if (typeof body.cwd !== "string" || !body.cwd.trim()) {
       return NextResponse.json({ error: "cwd required" }, { status: 400 });
     }
-    const cwd = resolve(body.cwd);
+    const cwd = access ? access.workspace : resolve(body.cwd);
+    if (access && !samePath(resolve(body.cwd), access.workspace)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 404 });
+    }
     if (!(await stat(cwd)).isDirectory()) {
       return NextResponse.json({ error: "cwd must be a directory" }, { status: 400 });
     }
-    const roots = await getAllowedFileRoots();
+    const roots = access ? new Set([access.workspace]) : await getAllowedFileRoots();
     if (!isExistingFilePathAllowed(cwd, roots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
@@ -29,6 +36,7 @@ export async function POST(req: Request) {
       typeof body.cols === "number" ? body.cols : 80,
       typeof body.rows === "number" ? body.rows : 24,
       body.id as string | undefined,
+      access?.identity.userId,
     );
     return NextResponse.json({ id });
   } catch (error) {

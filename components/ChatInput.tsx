@@ -73,6 +73,10 @@ interface Props {
   onDismissCompactError?: () => void;
   compactResult?: CompactResultInfo | null;
   toolPreset?: ToolPreset;
+  /** RuoYi 服务端允许当前用户选择的预设；null 表示仍在读取或未启用集成。 */
+  allowedToolPresets?: readonly ToolPreset[] | null;
+  /** RuoYi 集成时工具由服务端策略统一管理，不能在 Pi Web 改写。 */
+  ruoyiToolPolicyManaged?: boolean;
   onToolPresetChange?: (preset: ToolPreset) => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   /** New session has not committed a thinking level; the button still shows the resolved default. */
@@ -113,12 +117,13 @@ export interface ChatInputHandle {
 }
 
 // "configured" sends no override, so the session follows settings.json defaultTools.
-const TOOL_PRESETS = ["configured", "chat-only", "read-only", "default", "full"] as const;
+const TOOL_PRESETS = ["configured", "chat-only", "read-only", "edit", "default", "full"] as const;
 type ToolPresetLabel = typeof TOOL_PRESETS[number];
 const TOOL_PRESET_MAP: Record<ToolPresetLabel, ToolPreset> = {
   configured: "configured",
   "chat-only": "none",
   "read-only": "read-only",
+  edit: "edit",
   default: "default",
   full: "full",
 };
@@ -264,6 +269,10 @@ const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhi
 const THINKING_LEVEL_DESC_KEYS: Record<typeof THINKING_LEVELS[number], string> = {
   auto: "chat.thinkingUseDefault", off: "chat.thinkingOff", minimal: "chat.thinkingMinimal", low: "chat.thinkingLow",
   medium: "chat.thinkingMedium", high: "chat.thinkingHigh", xhigh: "chat.thinkingXhigh", max: "chat.thinkingMax",
+};
+const THINKING_LEVEL_LABEL_KEYS: Record<typeof THINKING_LEVELS[number], string> = {
+  auto: "chat.thinkingLevelAuto", off: "chat.thinkingLevelOff", minimal: "chat.thinkingLevelMinimal", low: "chat.thinkingLevelLow",
+  medium: "chat.thinkingLevelMedium", high: "chat.thinkingLevelHigh", xhigh: "chat.thinkingLevelXhigh", max: "chat.thinkingLevelMax",
 };
 
 function formatTokenCount(tokens: number): string {
@@ -649,7 +658,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
-  onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
+  onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, allowedToolPresets, ruoyiToolPolicyManaged, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -1654,10 +1663,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? `${compactResult.reason && compactResult.reason !== "manual" ? `${compactResult.reason[0].toUpperCase()}${compactResult.reason.slice(1)} ` : t("chat.compacted")} ${formatTokenCount(compactResult.tokensBefore)} -> ${formatTokenCount(compactResult.estimatedTokensAfter)} tokens (${t("chat.tokensSaved", { saved: formatTokenCount(compactSavedTokens) })})`
     : null;
   const resolvedThinkingLevel = thinkingLevel && thinkingLevel !== "auto" ? thinkingLevel : null;
+  const thinkingLevelLabel = (level: string) => {
+    const key = THINKING_LEVEL_LABEL_KEYS[level as keyof typeof THINKING_LEVEL_LABEL_KEYS];
+    return key ? t(key) : level;
+  };
   const thinkingDisplayLabel = (() => {
     const lvl = resolvedThinkingLevel ?? "auto";
-    if (lvl === "auto" || !thinkingLevelMap) return lvl;
-    return thinkingLevelMap[lvl] ?? lvl;
+    if (lvl === "auto" || !thinkingLevelMap) return thinkingLevelLabel(lvl);
+    return thinkingLevelLabel(thinkingLevelMap[lvl] ?? lvl);
   })();
   const rawToolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "configured"))?.[0] ?? "configured";
   const toolPresetLabel = rawToolPresetLabel === "chat-only" ? t("chat.chatOnly") : rawToolPresetLabel;
@@ -2582,7 +2595,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         : !isAutoThinkingSelection && resolvedThinkingLevel === lvl;
                       const desc = t(THINKING_LEVEL_DESC_KEYS[lvl]);
                       const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
-                      const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
+                      const displayLabel = thinkingLevelLabel((mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl);
                       const showOriginal = mappedVal != null && mappedVal !== lvl;
                       return (
                         <SelectorRow
@@ -2611,7 +2624,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         >
                           <span style={{ flex: 1 }}>
                             {displayLabel}
-                            {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
+                            {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({thinkingLevelLabel(lvl)})</span>}
                           </span>
                           <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
                         </SelectorRow>
@@ -2621,7 +2634,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-            {!isStreaming && onToolPresetChange && (
+            {!isStreaming && onToolPresetChange && !ruoyiToolPolicyManaged && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
@@ -2667,13 +2680,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 120,
                   }}>
-                    {TOOL_PRESETS.map((lvl) => {
+                    {TOOL_PRESETS.filter((lvl) => !allowedToolPresets || allowedToolPresets.includes(TOOL_PRESET_MAP[lvl])).map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
                       const isActive = (toolPreset ?? "configured") === preset;
                       let desc: string;
                       if (lvl === "configured") desc = t("chat.configuredTools");
                       else if (lvl === "chat-only") desc = t("chat.chatOnly");
                       else if (lvl === "read-only") desc = t("chat.readOnlyTools", { count: 4 });
+                      else if (lvl === "edit") desc = t("chat.editTools", { count: 6 });
                       else if (lvl === "default") desc = t("chat.builtInTools", { count: 4 });
                       else desc = t("chat.allBuiltInTools");
                       return (

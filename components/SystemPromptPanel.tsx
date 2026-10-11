@@ -1,17 +1,20 @@
+import { translateSystemPromptForDisplay } from "@/lib/system-prompt-display";
+
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 interface Props {
   loading: boolean;
   prompt: string | null;
+  locale: string;
   translate: Translate;
 }
 
-export function SystemPromptPanel({ loading, prompt, translate }: Props) {
+export function SystemPromptPanel({ loading, prompt, locale, translate }: Props) {
   return (
     <section className="system-prompt-panel" aria-label={translate("system.prompt")}>
       <div className="system-prompt-scroll">
         {prompt ? (
-          <div className="system-prompt-text">{prompt}</div>
+          <div className="system-prompt-text">{translateSystemPromptForDisplay(prompt, locale)}</div>
         ) : (
           <div className="system-prompt-empty">
             {prompt === ""

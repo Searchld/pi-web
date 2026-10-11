@@ -1,5 +1,7 @@
 export interface ToolEntry {
   name: string;
+  /** 工具面向用户的显示名称；调用时始终使用 name。 */
+  label?: string;
   description: string;
   active: boolean;
   /** Active, but left out of requests: the model calls it only from codemode scripts. */
@@ -9,7 +11,7 @@ export interface ToolEntry {
 }
 
 /** Presets that pin an explicit tool list onto the session. */
-export const CONCRETE_TOOL_PRESET_VALUES = ["none", "read-only", "default", "full"] as const;
+export const CONCRETE_TOOL_PRESET_VALUES = ["none", "read-only", "edit", "default", "full"] as const;
 export type ConcreteToolPreset = typeof CONCRETE_TOOL_PRESET_VALUES[number];
 
 /**
@@ -18,11 +20,13 @@ export type ConcreteToolPreset = typeof CONCRETE_TOOL_PRESET_VALUES[number];
  * left on it stay unpinned and keep following the setting as it changes.
  */
 export const CONFIGURED_TOOL_PRESET = "configured";
-export const TOOL_PRESET_VALUES = ["configured", "none", "read-only", "default", "full"] as const;
+export const TOOL_PRESET_VALUES = ["configured", "none", "read-only", "edit", "default", "full"] as const;
 export type ToolPreset = typeof TOOL_PRESET_VALUES[number];
 
 export const PRESET_NONE: string[] = [];
 export const PRESET_READ_ONLY: string[] = ["read", "grep", "find", "ls"];
+/** 可修改工作区内容，但不能执行任意命令。 */
+export const PRESET_EDIT: string[] = ["read", "edit", "write", "grep", "find", "ls"];
 export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
 export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls"];
 
@@ -51,6 +55,7 @@ export function getPresetFromToolNames(toolNames: readonly string[]): ConcreteTo
     .join(",");
 
   if (active === [...PRESET_READ_ONLY].sort().join(",")) return "read-only";
+  if (active === [...PRESET_EDIT].sort().join(",")) return "edit";
   if (active === [...PRESET_DEFAULT].sort().join(",")) return "default";
   if (active === [...PRESET_FULL].sort().join(",")) return "full";
   return "default";
@@ -61,6 +66,7 @@ export function getToolNamesForPreset(preset: ToolPreset): string[] | undefined 
   if (preset === CONFIGURED_TOOL_PRESET) return undefined;
   if (preset === "none") return [...PRESET_NONE];
   if (preset === "read-only") return [...PRESET_READ_ONLY];
+  if (preset === "edit") return [...PRESET_EDIT];
   if (preset === "full") return [...PRESET_FULL];
   return [...PRESET_DEFAULT];
 }

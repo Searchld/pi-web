@@ -10,9 +10,18 @@ import {
   resolveDirectory,
   shouldShowWindowsDrivePicker,
 } from "@/lib/directory-browser";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+
+function ruoyiDisabled() {
+  return isRuoyiIntegrationEnabled()
+    ? NextResponse.json({ error: "RuoYi 模式不允许浏览或创建任意工作目录" }, { status: 403 })
+    : null;
+}
 
 // GET /api/cwd/browse?path=...：列出文件系统中的可读子目录。
 export async function GET(request: NextRequest) {
+  const denied = ruoyiDisabled();
+  if (denied) return denied;
   try {
     const requested = request.nextUrl.searchParams.get("path")?.trim();
 
@@ -54,6 +63,8 @@ export async function GET(request: NextRequest) {
 // POST /api/cwd/browse  body: { path: string, name: string }
 // Creates one direct child of the currently browsed directory.
 export async function POST(request: Request) {
+  const denied = ruoyiDisabled();
+  if (denied) return denied;
   if (!isApiRequestAllowed(request)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }

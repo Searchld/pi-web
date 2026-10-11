@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 import { runNpx } from "@/lib/npx";
 import type { SkillSearchResult } from "@/lib/api-types";
 
@@ -89,6 +90,8 @@ function parseInstallCount(installs: string): number {
 
 // POST /api/skills/search  body: { query: string, limit?: number }
 export async function POST(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "skills");
+  if (denied) return denied;
   try {
     const { query, limit: rawLimit } = await req.json() as { query?: string; limit?: unknown };
     if (!query?.trim()) return NextResponse.json({ error: "query required" }, { status: 400 });

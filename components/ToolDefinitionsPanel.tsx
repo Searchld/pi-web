@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ToolEntry } from "@/lib/tool-presets";
+import { localizeToolDefinition } from "@/lib/tool-definition-localization";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -30,7 +31,7 @@ function formatValue(value: unknown): string {
   }
 }
 
-function formatSchemaType(schema: Record<string, unknown>): string {
+function formatSchemaType(schema: Record<string, unknown>, translate: Translate): string {
   const variants = Array.isArray(schema.anyOf)
     ? schema.anyOf
     : Array.isArray(schema.oneOf)
@@ -39,8 +40,8 @@ function formatSchemaType(schema: Record<string, unknown>): string {
   if (variants) {
     return variants
       .map((variant) => variant && typeof variant === "object"
-        ? formatSchemaType(variant as Record<string, unknown>)
-        : "unknown")
+        ? formatSchemaType(variant as Record<string, unknown>, translate)
+        : translate("tools.type.unknown"))
       .filter((value, index, values) => values.indexOf(value) === index)
       .join(" | ");
   }
@@ -56,20 +57,20 @@ function formatSchemaType(schema: Record<string, unknown>): string {
     : typeof rawType === "string"
       ? rawType
       : typeof schema.$ref === "string"
-        ? schema.$ref.split("/").pop() ?? "object"
-        : "unknown";
+        ? schema.$ref.split("/").pop() ?? translate("tools.type.object")
+        : translate("tools.type.unknown");
 
   if (type === "array") {
     const items = schema.items;
     const itemType = items && typeof items === "object"
-      ? formatSchemaType(items as Record<string, unknown>)
-      : "unknown";
+      ? formatSchemaType(items as Record<string, unknown>, translate)
+      : translate("tools.type.unknown");
     return `${itemType}[]`;
   }
-  return type;
+  return translate(`tools.type.${type}`) === `tools.type.${type}` ? type : translate(`tools.type.${type}`);
 }
 
-export function getToolParameterFields(parameters?: Record<string, unknown>): ParameterField[] {
+export function getToolParameterFields(parameters: Record<string, unknown> | undefined, translate: Translate): ParameterField[] {
   if (!parameters || !parameters.properties || typeof parameters.properties !== "object") return [];
   const properties = parameters.properties as Record<string, unknown>;
   const required = new Set(
@@ -82,7 +83,7 @@ export function getToolParameterFields(parameters?: Record<string, unknown>): Pa
     const schema = value && typeof value === "object" ? value as Record<string, unknown> : {};
     return {
       name,
-      type: formatSchemaType(schema),
+      type: formatSchemaType(schema, translate),
       description: typeof schema.description === "string" ? schema.description : undefined,
       required: required.has(name),
       allowedValues: Array.isArray(schema.enum) ? schema.enum.map(formatValue).join(", ") : undefined,
@@ -115,13 +116,20 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
   const selectedTool = declaredTools?.find((tool) => tool.name === selectedToolName)
     ?? declaredTools?.[0]
     ?? null;
-  const fields = selectedTool ? getToolParameterFields(selectedTool.parameters) : [];
+  const displayTools = useMemo(
+    () => declaredTools?.map((tool) => localizeToolDefinition(tool, translate)) ?? null,
+    [declaredTools, translate],
+  );
+  const displaySelectedTool = displayTools?.find((tool) => tool.name === selectedTool?.name)
+    ?? displayTools?.[0]
+    ?? null;
+  const fields = displaySelectedTool ? getToolParameterFields(displaySelectedTool.parameters, translate) : [];
 
   return (
     <div className="tool-definitions-panel">
       <nav className="tool-definitions-sidebar" aria-label={translate("tools.title")}>
         <div className="tool-definitions-list">
-          {declaredTools && declaredTools.length > 0 ? declaredTools.map((tool) => {
+          {displayTools && displayTools.length > 0 ? displayTools.map((tool) => {
             const selected = tool.name === selectedTool?.name;
             return (
               <button
@@ -131,7 +139,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
                 aria-pressed={selected}
                 onClick={() => setSelectedToolName(tool.name)}
               >
-                <code>{tool.name}</code>
+                <span>{tool.displayName}</span>
               </button>
             );
           }) : declaredTools ? (
@@ -143,12 +151,12 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
       </nav>
 
       <section className="tool-definition-detail" aria-label={translate("tools.details")}>
-        {selectedTool ? (
+        {displaySelectedTool ? (
           <div className="tool-definition-scroll">
-            {selectedTool.description && (
+            {displaySelectedTool.description && (
               <section className="tool-definition-section">
                 <div className="tool-definition-section-label">{translate("tools.description")}</div>
-                <div className="tool-definition-description">{selectedTool.description}</div>
+                <div className="tool-definition-description">{displaySelectedTool.description}</div>
               </section>
             )}
 
@@ -189,12 +197,12 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
               )}
             </section>
 
-            {selectedTool.promptGuidelines && selectedTool.promptGuidelines.length > 0 && (
+            {displaySelectedTool.promptGuidelines && displaySelectedTool.promptGuidelines.length > 0 && (
               <section className="tool-definition-section">
                 <div className="tool-definition-section-label">{translate("tools.guidelines")}</div>
                 <ul className="tool-definition-guidelines">
-                  {selectedTool.promptGuidelines.map((guideline, index) => (
-                    <li key={`${selectedTool.name}:${index}`}>{guideline}</li>
+                  {displaySelectedTool.promptGuidelines.map((guideline, index) => (
+                    <li key={`${displaySelectedTool.name}:${index}`}>{guideline}</li>
                   ))}
                 </ul>
               </section>
@@ -260,12 +268,10 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
           box-shadow: inset 2px 0 0 var(--accent);
           color: var(--text);
         }
-        .tool-definitions-item code {
-          max-width: 100%;
+        .tool-definitions-item span {
           color: inherit;
-          font-size: 11px;
+          font-size: 13px;
           font-weight: 600;
-          overflow-wrap: anywhere;
         }
         .tool-definition-scroll {
           padding: 14px 16px 20px;

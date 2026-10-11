@@ -17,6 +17,7 @@ import {
   isDocumentPreviewPath,
   isImagePath,
   isVideoPath,
+  XLSX_PREVIEW_MAX_BYTES,
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
@@ -936,6 +937,8 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
 
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
+  const previewMaxBytes = ext === "xlsx" ? XLSX_PREVIEW_MAX_BYTES : DOCX_PREVIEW_MAX_BYTES;
+  const previewTooLargeMessage = `${ext.toUpperCase()} too large for preview (>10MB)`;
   const pageFragment = isPdf && initialPage && initialPage > 0 ? `#page=${initialPage}` : "";
   const previewUrl = isPdf
     ? `${getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)}${pageFragment}`
@@ -956,8 +959,8 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
         if (d.error) setError(d.error);
         if (typeof d.size === "number") {
           setSize(d.size);
-          if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX too large for preview (>10MB)");
+          if (!isPdf && d.size > previewMaxBytes) {
+            setError(previewTooLargeMessage);
           }
         }
       })
@@ -968,7 +971,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
     return () => {
       active = false;
     };
-  }, [filePath, isPdf, sourceSessionId]);
+  }, [filePath, isPdf, previewMaxBytes, previewTooLargeMessage, sourceSessionId]);
 
   useEffect(() => {
     setWatching(false);
@@ -993,8 +996,8 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
           }
           if (typeof d.size === "number") {
             setSize(d.size);
-            if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-              setError("DOCX too large for preview (>10MB)");
+            if (!isPdf && d.size > previewMaxBytes) {
+              setError(previewTooLargeMessage);
               return;
             }
           }
@@ -1019,8 +1022,8 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
         const d = JSON.parse((e as MessageEvent).data) as { size?: number };
         if (typeof d.size === "number") {
           setSize(d.size);
-          if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX too large for preview (>10MB)");
+          if (!isPdf && d.size > previewMaxBytes) {
+            setError(previewTooLargeMessage);
             return;
           }
         }
@@ -1039,7 +1042,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
       es.close();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, isPdf, sourceSessionId, watchEnabled]);
+  }, [filePath, isPdf, previewMaxBytes, previewTooLargeMessage, sourceSessionId, watchEnabled]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1059,7 +1062,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
         <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
+        <span style={{ marginLeft: "auto" }}>{isPdf ? "pdf" : `${ext} preview`}</span>
         {size != null && <span>{formatSize(size)}</span>}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span

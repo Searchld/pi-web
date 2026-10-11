@@ -11,6 +11,7 @@ import { checkLinkedDirectoryApproval, withOutsideLinkTargets } from "@/lib/link
 import {
   DOCX_PREVIEW_MAX_BYTES,
   IMAGE_PREVIEW_MAX_BYTES,
+  XLSX_PREVIEW_MAX_BYTES,
   documentPreviewKind,
   getAudioMime,
   getDocumentMime,
@@ -32,6 +33,8 @@ import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounde
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+import { requireRuoyiToolAccess } from "@/lib/ruoyi-access";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -40,6 +43,9 @@ const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
+const XLSX_PREVIEW_MAX_SHEETS = 10;
+const XLSX_PREVIEW_MAX_ROWS = 500;
+const XLSX_PREVIEW_MAX_COLUMNS = 50;
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -70,12 +76,12 @@ function parseFileRequestType(value: string): FileRequestType | null {
   return FILE_REQUEST_TYPE_SET.has(value) ? (value as FileRequestType) : null;
 }
 
-async function getUploadDirectory(segments: string[]): Promise<
+async function getUploadDirectory(segments: string[], allowedRoots?: Set<string>): Promise<
   { directory: string } | { response: NextResponse }
 > {
   const directory = filePathFromApiSegments(segments);
-  const allowedRoots = await getAllowedFileRoots();
-  if (!isFilePathAllowed(directory, allowedRoots)) {
+  const roots = allowedRoots ?? await getAllowedFileRoots();
+  if (!isFilePathAllowed(directory, roots)) {
     return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
   }
 
@@ -93,7 +99,7 @@ async function getUploadDirectory(segments: string[]): Promise<
   // so a symlink inside an allowed root cannot redirect uploads outside it.
   const realDirectory = fs.realpathSync(directory);
   const realRoots = new Set<string>();
-  for (const root of allowedRoots) {
+  for (const root of roots) {
     try {
       realRoots.add(fs.realpathSync(root));
     } catch {
@@ -114,6 +120,9 @@ async function allowLinkedDirectory(
   request: NextRequest,
   segments: string[],
 ): Promise<NextResponse> {
+  if (isRuoyiIntegrationEnabled()) {
+    return NextResponse.json({ error: "RuoYi 模式不允许授权工作区外的符号链接目录" }, { status: 403 });
+  }
   if (!hasJsonContentType(request)) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
@@ -147,11 +156,13 @@ export async function POST(
   }
 
   try {
+    const access = await requireRuoyiToolAccess(request, "write");
+    if (access instanceof NextResponse) return access;
     const { path: segments } = await params;
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
     if (type === "allow-link") return allowLinkedDirectory(request, segments);
 
-    const uploadDirectory = await getUploadDirectory(segments);
+    const uploadDirectory = await getUploadDirectory(segments, access ? new Set([access.workspace]) : undefined);
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
 
@@ -435,11 +446,84 @@ ${bodyHtml}
 </html>`;
 }
 
+async function createXlsxPreviewHtml(filePath: string): Promise<string> {
+  const xlsx = await import("xlsx");
+  const workbook = xlsx.read(fs.readFileSync(filePath), {
+    type: "buffer",
+    cellFormula: false,
+    cellHTML: false,
+    sheetRows: XLSX_PREVIEW_MAX_ROWS,
+  });
+  const sheetNames = workbook.SheetNames.slice(0, XLSX_PREVIEW_MAX_SHEETS);
+  if (sheetNames.length === 0) throw new Error("Workbook has no worksheets");
+
+  const sheets = sheetNames.map((sheetName) => {
+    const worksheet = workbook.Sheets[sheetName];
+    const reference = worksheet?.["!ref"];
+    if (!worksheet || !reference) {
+      return `<section class="sheet"><h2>${escapeHtml(sheetName)}</h2><p class="empty">此工作表没有可显示的单元格。</p></section>`;
+    }
+
+    const range = xlsx.utils.decode_range(reference);
+    const lastRow = Math.min(range.e.r, range.s.r + XLSX_PREVIEW_MAX_ROWS - 1);
+    const lastColumn = Math.min(range.e.c, range.s.c + XLSX_PREVIEW_MAX_COLUMNS - 1);
+    const rows: string[] = [];
+    for (let row = range.s.r; row <= lastRow; row += 1) {
+      const cells: string[] = [];
+      for (let column = range.s.c; column <= lastColumn; column += 1) {
+        const cell = worksheet[xlsx.utils.encode_cell({ r: row, c: column })];
+        const value = cell ? xlsx.utils.format_cell(cell) : "";
+        cells.push(`<td>${escapeHtml(value)}</td>`);
+      }
+      rows.push(`<tr><th scope="row">${row + 1}</th>${cells.join("")}</tr>`);
+    }
+
+    return `<section class="sheet"><h2>${escapeHtml(sheetName)}</h2><div class="table-wrap"><table><tbody>${rows.join("")}</tbody></table></div></section>`;
+  });
+  const omittedSheetNotice = workbook.SheetNames.length > sheetNames.length
+    ? `<p class="notice">仅显示前 ${XLSX_PREVIEW_MAX_SHEETS} 个工作表。</p>`
+    : "";
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; min-height: 100%; background: #eef1f5; color: #171717; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; }
+  main { box-sizing: border-box; max-width: 1280px; margin: 0 auto; padding: 28px; background: #fff; box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14); }
+  .file-title { margin: 0 0 10px; color: #6b7280; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .notice, .empty { margin: 0 0 18px; color: #6b7280; font-size: 13px; }
+  .sheet { margin-top: 28px; }
+  h2 { margin: 0 0 10px; color: #111827; font-size: 16px; }
+  .table-wrap { overflow: auto; border: 1px solid #d1d5db; }
+  table { border-collapse: collapse; min-width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #e5e7eb; padding: 6px 9px; text-align: left; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+  th { position: sticky; left: 0; background: #f8fafc; color: #64748b; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  td { min-width: 76px; max-width: 360px; }
+  @media (max-width: 720px) { body { padding: 0; background: #fff; } main { min-height: 100vh; padding: 20px; box-shadow: none; } }
+</style>
+</head>
+<body>
+<main>
+<div class="file-title">${escapeHtml(path.basename(filePath))}</div>
+<p class="notice">每个工作表最多显示前 ${XLSX_PREVIEW_MAX_ROWS} 行和 ${XLSX_PREVIEW_MAX_COLUMNS} 列。</p>
+${omittedSheetNotice}
+${sheets.join("")}
+</main>
+</body>
+</html>`;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    const access = await requireRuoyiToolAccess(request, "read");
+    if (access instanceof NextResponse) return access;
     const { path: segments } = await params;
     const filePath = filePathFromApiSegments(segments);
     // Authorization collapses `..` lexically, but the filesystem applies it
@@ -458,10 +542,10 @@ export async function GET(
     }
     const sessionId = request.nextUrl.searchParams.get("sessionId");
 
-    const allowedRoots = await getAllowedFileRoots();
+    const allowedRoots = access ? new Set([access.workspace]) : await getAllowedFileRoots();
     const allowedByRoot = isFilePathAllowed(filePath, allowedRoots);
     const allowedBySessionReference =
-      !allowedByRoot &&
+      !access && !allowedByRoot &&
       type !== "list" &&
       await isFilePathReferencedBySession(filePath, sessionId);
     if (!allowedByRoot && !allowedBySessionReference) {
@@ -549,22 +633,33 @@ export async function GET(
       if (!stat?.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
-      if (getFileExt(filePath) !== "docx") {
+      const previewExtension = getFileExt(filePath);
+      if (previewExtension !== "docx" && previewExtension !== "xlsx") {
         return NextResponse.json({ error: "Preview not available for this file type" }, { status: 400 });
       }
-      if (stat.size > DOCX_PREVIEW_MAX_BYTES) {
-        return NextResponse.json({ error: "DOCX too large for preview (>10MB)" }, { status: 413 });
+      const previewMaxBytes = previewExtension === "xlsx" ? XLSX_PREVIEW_MAX_BYTES : DOCX_PREVIEW_MAX_BYTES;
+      if (stat.size > previewMaxBytes) {
+        return NextResponse.json({ error: `${previewExtension.toUpperCase()} too large for preview (>10MB)` }, { status: 413 });
       }
 
-      const mammoth = await import("mammoth");
-      const result = await mammoth.convertToHtml(
-        { path: filePath },
-        {
-          externalFileAccess: false,
-          convertImage: mammoth.images.dataUri,
+      let html: string;
+      try {
+        if (previewExtension === "xlsx") {
+          html = await createXlsxPreviewHtml(filePath);
+        } else {
+          const mammoth = await import("mammoth");
+          const result = await mammoth.convertToHtml(
+            { path: filePath },
+            {
+              externalFileAccess: false,
+              convertImage: mammoth.images.dataUri,
+            }
+          );
+          html = wrapDocxPreviewHtml(result.value, path.basename(filePath));
         }
-      );
-      const html = wrapDocxPreviewHtml(result.value, path.basename(filePath));
+      } catch {
+        return NextResponse.json({ error: `Cannot preview ${previewExtension.toUpperCase()} file` }, { status: 422 });
+      }
       return new Response(html, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",

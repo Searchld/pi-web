@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 import type { McpErrorResponse, McpRefusalReason, McpSignInFlowInfo } from "@/lib/api-types";
 import { cancelMcpSignIn, pasteMcpSignInRedirect, readMcpSignIn } from "@/lib/mcp-sign-in";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -24,6 +25,8 @@ const UNKNOWN = "No sign-in has that id: it ended over a minute ago, or Pi Web r
 type Context = { params: Promise<{ flowId: string }> };
 
 export async function GET(req: Request, { params }: Context) {
+  const denied = await requireRuoyiSettingsAccess(req, "mcp");
+  if (denied) return denied;
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   const { flowId } = await params;
   const flow = readMcpSignIn(flowId);
@@ -32,6 +35,8 @@ export async function GET(req: Request, { params }: Context) {
 }
 
 export async function POST(req: Request, { params }: Context) {
+  const denied = await requireRuoyiSettingsAccess(req, "mcp");
+  if (denied) return denied;
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
   const { flowId } = await params;
@@ -50,6 +55,8 @@ export async function POST(req: Request, { params }: Context) {
 }
 
 export async function DELETE(req: Request, { params }: Context) {
+  const denied = await requireRuoyiSettingsAccess(req, "mcp");
+  if (denied) return denied;
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   const { flowId } = await params;
   const flow = cancelMcpSignIn(flowId);

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 import { runNpx } from "@/lib/npx";
 import type { SkillInstallScope } from "@/lib/api-types";
 import { buildSkillUpdateArgs } from "@/lib/skill-updates";
@@ -8,6 +9,8 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const denied = await requireRuoyiSettingsAccess(req, "skills");
+  if (denied) return denied;
   try {
     const body = await req.json() as {
       cwd?: unknown;
