@@ -4,16 +4,6 @@ import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-ma
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 
-/** 套餐变更后，旧会话不得继续沿用已失效模型；优先回退到套餐默认模型。 */
-async function reconcileRuoyiModel(session: { inner: { model?: { provider: string; id: string } }; send(command: unknown): Promise<unknown> }, policy: NonNullable<Awaited<ReturnType<typeof loadRuoyiAgentPolicy>>>) {
-  const current = session.inner.model;
-  if (current && policy.modelPolicy.models.some((model) => model.provider === current.provider && model.modelId === current.id)) return;
-  const fallback = policy.modelPolicy.models.find((model) => model.modelCode === policy.modelPolicy.defaultModelCode)
-    ?? policy.modelPolicy.models[0];
-  if (!fallback) throw new RuoyiToolAuthorizationError("当前账户未配置可用模型套餐");
-  await session.send({ type: "set_model", provider: fallback.provider, modelId: fallback.modelId });
-}
-
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
   req: Request,
@@ -68,7 +58,6 @@ export async function POST(
           });
           session = tightened.session;
         }
-        await reconcileRuoyiModel(session, ruoyiPolicy!);
       }
       const result = await session.send(body);
       promptAccepted = body.type === "prompt";

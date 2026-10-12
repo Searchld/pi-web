@@ -16,89 +16,7 @@ export type RuoyiAgentPolicy = {
   businessToolsEnabled: boolean;
   subagentToolNames: string[];
   settingsSections: string[];
-  modelPolicy: RuoyiModelPolicy;
 };
-
-export type RuoyiModelPolicy = {
-  modelManaged: boolean;
-  models: Array<{ modelCode: string; provider: string; modelId: string; displayName: string; pricingVersion: string }>;
-  defaultModelCode: string | null;
-  maxInputTokens: number;
-  maxOutputTokens: number;
-  maxModelCalls: number;
-  policyVersion: string;
-  quota: {
-    dailyTokens: number;
-    monthlyTokens: number;
-    dailyCostMicros: number;
-    monthlyCostMicros: number;
-    dailyTokensRemaining: number;
-    monthlyTokensRemaining: number;
-    dailyCostMicrosRemaining: number;
-    monthlyCostMicrosRemaining: number;
-  };
-};
-
-const EMPTY_MODEL_POLICY: RuoyiModelPolicy = {
-  modelManaged: true,
-  models: [],
-  defaultModelCode: null,
-  maxInputTokens: 0,
-  maxOutputTokens: 0,
-  maxModelCalls: 0,
-  policyVersion: "none",
-  quota: {
-    dailyTokens: 0, monthlyTokens: 0, dailyCostMicros: 0, monthlyCostMicros: 0,
-    dailyTokensRemaining: 0, monthlyTokensRemaining: 0, dailyCostMicrosRemaining: 0, monthlyCostMicrosRemaining: 0,
-  },
-};
-
-function nonNegativeInteger(value: unknown): number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
-function modelPolicy(value: unknown): RuoyiModelPolicy {
-  if (!value || typeof value !== "object") return EMPTY_MODEL_POLICY;
-  const record = value as Record<string, unknown>;
-  const seen = new Set<string>();
-  const models = Array.isArray(record.models) ? record.models.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const model = item as Record<string, unknown>;
-    const modelCode = typeof model.modelCode === "string" ? model.modelCode : "";
-    const provider = typeof model.provider === "string" ? model.provider : "";
-    const modelId = typeof model.modelId === "string" ? model.modelId : "";
-    const key = `${provider}:${modelId}`;
-    if (!modelCode || !provider || !modelId || seen.has(key)) return [];
-    seen.add(key);
-    return [{
-      provider,
-      modelCode,
-      modelId,
-      displayName: typeof model.displayName === "string" && model.displayName ? model.displayName : modelId,
-      pricingVersion: typeof model.pricingVersion === "string" ? model.pricingVersion : "",
-    }];
-  }) : [];
-  const quotaValue = record.quota && typeof record.quota === "object" ? record.quota as Record<string, unknown> : {};
-  return {
-    modelManaged: record.modelManaged === true,
-    models,
-    defaultModelCode: typeof record.defaultModelCode === "string" ? record.defaultModelCode : null,
-    maxInputTokens: nonNegativeInteger(record.maxInputTokens),
-    maxOutputTokens: nonNegativeInteger(record.maxOutputTokens),
-    maxModelCalls: nonNegativeInteger(record.maxModelCalls),
-    policyVersion: typeof record.policyVersion === "string" && record.policyVersion ? record.policyVersion : "none",
-    quota: {
-      dailyTokens: nonNegativeInteger(quotaValue.dailyTokens),
-      monthlyTokens: nonNegativeInteger(quotaValue.monthlyTokens),
-      dailyCostMicros: nonNegativeInteger(quotaValue.dailyCostMicros),
-      monthlyCostMicros: nonNegativeInteger(quotaValue.monthlyCostMicros),
-      dailyTokensRemaining: nonNegativeInteger(quotaValue.dailyTokensRemaining),
-      monthlyTokensRemaining: nonNegativeInteger(quotaValue.monthlyTokensRemaining),
-      dailyCostMicrosRemaining: nonNegativeInteger(quotaValue.dailyCostMicrosRemaining),
-      monthlyCostMicrosRemaining: nonNegativeInteger(quotaValue.monthlyCostMicrosRemaining),
-    },
-  };
-}
 
 export class RuoyiToolAuthorizationError extends Error {}
 
@@ -130,7 +48,6 @@ export function normalizeRuoyiAgentPolicy(payload: unknown): RuoyiAgentPolicy {
     businessToolsEnabled: record.businessToolsEnabled === true,
     subagentToolNames: stringNames(record.subagentToolNames, subagentToolNameSet),
     settingsSections: stringNames(record.settingsSections, settingsSectionNameSet),
-    modelPolicy: modelPolicy(record.modelPolicy),
   };
 }
 

@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { ModelsConfigReadError, readModelsConfig, writeModelsConfig } from "@/lib/models-config-store";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
-import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "RuoYi 模式下模型配置由系统策略统一管理" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   try {
@@ -20,7 +18,6 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "RuoYi 模式下模型配置由系统策略统一管理" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   try {

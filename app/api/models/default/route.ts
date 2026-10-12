@@ -48,7 +48,6 @@ function parseEdit(body: DefaultPreferencesRequest): DefaultPreferencesEdit | nu
  * so it goes through the same allow-list as `/api/models`.
  */
 export async function PUT(req: Request) {
-  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "RuoYi 模式下模型默认值由系统策略统一管理" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   let body: DefaultPreferencesRequest;
@@ -79,10 +78,20 @@ export async function PUT(req: Request) {
 
   try {
     const agentDir = getAgentDir();
-    const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+    // RuoYi 会话不读取项目级资源；保存默认模型时也不能以信任项目为前提。
+    const trustReloadOptions = isRuoyiIntegrationEnabled() ? undefined : projectTrustReloadOptions(cwd, agentDir);
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
+      ...(isRuoyiIntegrationEnabled() ? {
+        resourceLoaderOptions: {
+          noExtensions: true,
+          noSkills: true,
+          noPromptTemplates: true,
+          noThemes: true,
+          noContextFiles: true,
+        },
+      } : {}),
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const { settingsManager } = services;

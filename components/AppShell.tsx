@@ -36,7 +36,7 @@ import {
   showBrowserNotification,
 } from "@/lib/browser-notifications";
 import { setupPushSubscription } from "@/lib/push-client";
-import { getInitialNavigation, withTabOpen } from "@/lib/initial-navigation";
+import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
 import { getDraft, rekeyDraft } from "@/lib/draft-store";
@@ -241,7 +241,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
-  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
+  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, holdAudio, soundEnabledRef } = useAudio();
   const [quoteSelectionEnabled, setQuoteSelectionEnabled] = useState(false);
   useEffect(() => {
     try {
@@ -755,6 +755,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   }, [isMobile]);
 
   const initialSessionId = initialNavigation.sessionId;
+  const initialLinkedSessionId = linkedSessionId(initialNavigation);
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
@@ -770,6 +771,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   }, [initialNavigation]);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
+  // Set when the session the URL linked to is gone: the project the sidebar
+  // adopts next keeps a fresh composer instead of restoring its last session.
+  const skipWorkspaceRestoreRef = useRef(false);
   // Guards the async workspace restore so a slow response from an earlier
   // switch cannot resurrect a session into a project the user already left.
   const workspaceRestoreTokenRef = useRef(0);
@@ -902,6 +906,8 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     setActiveCwd(cwd);
     // Skip if cwd is null (initial mount).
     if (!cwd) return;
+    const skipWorkspaceRestore = skipWorkspaceRestoreRef.current;
+    skipWorkspaceRestoreRef.current = false;
     const newProject = projectKey ?? projectRoot ?? cwd;
     const currentProject = activeProjectKeyRef.current
       ?? (selectedSession ? workspaceKeyOf(selectedSession) : null);
@@ -957,7 +963,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       changeFileWorkspace(currentProject, newProject);
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
-      restoreWorkspaceContext(newProject, cwd);
+      if (!skipWorkspaceRestore) restoreWorkspaceContext(newProject, cwd);
     }
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
@@ -1140,9 +1146,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   }, [handleSelectSession, locale]);
 
   const handleAgentEnd = useCallback((end: AgentEndInfo) => {
+    // The sidebar's reload merges the selected session's new row into it
+    // (handleSessionsChange), so no list fetch of its own here.
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-    if (selectedSession) hydrateSelectedSession(selectedSession.id);
 
     if (end.aborted || selectedSession?.relation?.kind === "subagent") return;
     if (!shouldShowBrowserNotification()) return;
@@ -1153,7 +1160,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       body: translate("i18n.taskFinished"),
       tag: targetSession ? `pi-session-complete:${targetSession.id}` : "pi-session-complete",
     });
-  }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
+  }, [deliverSessionNotification, selectedSession, translate]);
 
   const handleAttentionNeeded = useCallback((request: BlockingExtensionUiRequest) => {
     if (selectedSession?.relation?.kind === "subagent") return;
@@ -1253,9 +1260,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     handleSessionForked(result.newSessionId);
   }, [handleSessionForked, translate]);
 
+  // The sidebar calls this when the initial session is not in its list.
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
-  }, []);
+    if (initialLinkedSessionId) skipWorkspaceRestoreRef.current = true;
+  }, [initialLinkedSessionId]);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
@@ -1433,7 +1442,8 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     setProjectTrust(null);
     setProjectTrustDialogOpen(false);
     setProjectTrustError(null);
-    if (!projectTrustCwd) return;
+    // RuoYi 会话禁止读取或信任项目配置，避免项目级 MCP/扩展进入受控会话。
+    if (isRuoyiIntegration || !projectTrustCwd) return;
 
     const controller = new AbortController();
     // The answer also lists the project's MCP servers (`mcpFile`, `mcpServers`), unused here: the
@@ -1451,10 +1461,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         console.error("Failed to load project trust:", error);
       });
     return () => controller.abort();
-  }, [projectTrustCwd]);
+  }, [isRuoyiIntegration, projectTrustCwd]);
 
   const handleTrustProject = useCallback(async () => {
-    if (!projectTrustCwd || projectTrustBusy) return;
+    if (isRuoyiIntegration || !projectTrustCwd || projectTrustBusy) return;
     setProjectTrustBusy(true);
     setProjectTrustError(null);
     try {
@@ -1478,7 +1488,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     } finally {
       setProjectTrustBusy(false);
     }
-  }, [projectTrustBusy, projectTrustCwd]);
+  }, [isRuoyiIntegration, projectTrustBusy, projectTrustCwd]);
 
   // The restricted-mode banner and Settings › MCP's trust notice open the same dialog.
   const openProjectTrustDialog = useCallback(() => {
@@ -1520,6 +1530,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         onNewSessionContextChange={handleSidebarNewSessionContext}
         hideWorkspacePicker={isRuoyiIntegration}
         initialSessionId={initialSessionId}
+        initialSessionLinked={initialLinkedSessionId !== null}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
@@ -1589,7 +1600,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   );
 
   const renderProjectTrustWarning = (mobileBanner: boolean) => {
-    if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
+    if (isRuoyiIntegration || !showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
     return (
       <button
         type="button"
@@ -2605,6 +2616,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
+              holdAudio={holdAudio}
             />
           ) : initialCwdStatus === "validating" ? (
             <div
@@ -2802,13 +2814,13 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           setModelsRefreshKey((key) => key + 1);
         }}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
-        projectTrust={projectTrust}
-        onOpenTrustDialog={openProjectTrustDialog}
+        projectTrust={isRuoyiIntegration ? null : projectTrust}
+        onOpenTrustDialog={isRuoyiIntegration ? undefined : openProjectTrustDialog}
         onProjectTrustChanged={handleProjectTrustChanged}
       />
     )}
     {/* After Settings, so it opens above it (z-index 1100 over 1000) when Settings › MCP asks for it. */}
-    {projectTrustDialogOpen && projectTrustCwd && (
+    {!isRuoyiIntegration && projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}
         busy={projectTrustBusy}

@@ -3,18 +3,17 @@ import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileS
 import { dirname, join } from "path";
 import {
   attachSessionProjectInfo,
-  listAllSessions,
-  mergeSessionLists,
   openSessionManager,
   resolveSessionPath,
   resolveSessionIdByPath,
-  invalidateSessionPathCache,
   invalidateSessionListCache,
   invalidateSessionManagerCache,
-  buildSessionContext,
+  invalidateSessionPathCache,
+  listAllSessions,
+  mergeSessionLists,
   readSessionHeader,
+  buildSessionContext,
 } from "@/lib/session-reader";
-import { sessionPathKey } from "@/lib/session-path";
 import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
 import { projectTreeForResponse, toSummaryTree } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
@@ -23,6 +22,7 @@ import { startServerPerf } from "@/lib/perf";
 import { computeSessionRevision } from "@/lib/session-revision";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
+import { sessionPathKey } from "@/lib/session-path";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
 import { forgetSessionUiState } from "@/lib/session-ui-state";
@@ -203,7 +203,7 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/sessions/[id]
+// DELETE /api/sessions/[id] - the session and the subagent sessions below it (lib/session-delete.ts).
 export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -217,7 +217,6 @@ export async function DELETE(
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-
     // Read only the bounded header before deleting.
     let parentSessionPath: string | undefined;
     try {

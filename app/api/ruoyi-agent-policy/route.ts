@@ -14,8 +14,6 @@ export async function GET(request: Request) {
       enabled: true,
       managed: true,
       ...policy,
-      // 企业模型由服务端套餐下发，不能再通过 Pi Web 修改部署机全局模型配置。
-      settingsSections: policy.settingsSections.filter((section) => section !== "models"),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "读取 RuoYi Agent 权限失败" }, {

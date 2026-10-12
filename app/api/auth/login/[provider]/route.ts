@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
-import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +21,6 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
-  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "企业模式不允许在 Pi Web 登录供应商" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   const { provider } = await params;
@@ -52,7 +50,6 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
-  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "企业模式不允许在 Pi Web 登录供应商" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   const { provider } = await params;

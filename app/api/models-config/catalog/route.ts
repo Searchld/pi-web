@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
-import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 import {
   flattenModelsDevCatalog,
   recommendModelCatalogPreset,
@@ -62,7 +61,6 @@ async function loadCatalog(): Promise<ModelCatalogEntry[]> {
 }
 
 export async function GET(req: Request) {
-  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ error: "RuoYi 模式下不允许发现模型目录" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   const { searchParams } = new URL(req.url);
