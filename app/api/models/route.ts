@@ -144,21 +144,7 @@ export async function GET(req: Request) {
     const models = access
       ? await loadModels(cwd, true)
       : await loadModelsWithCache(cwd, () => loadModels(cwd, false));
-    if (!access) return Response.json(models);
-    const allowed = new Set(access.policy.modelPolicy.models.map((model) => `${model.provider}:${model.modelId}`));
-    const modelList = models.modelList.filter((model) => allowed.has(`${model.provider}:${model.id}`));
-    const names = Object.fromEntries(Object.entries(models.models).filter(([key]) => allowed.has(key)));
-    const defaultDefinition = access.policy.modelPolicy.models.find((model) => model.modelCode === access.policy.modelPolicy.defaultModelCode);
-    const defaultModel = defaultDefinition && allowed.has(`${defaultDefinition.provider}:${defaultDefinition.modelId}`)
-      ? { provider: defaultDefinition.provider, modelId: defaultDefinition.modelId }
-      : modelList[0] ? { provider: modelList[0].provider, modelId: modelList[0].id } : null;
-    return Response.json({
-      ...models,
-      models: names,
-      modelList,
-      defaultModel,
-      modelPolicyVersion: access.policy.modelPolicy.policyVersion,
-    });
+    return Response.json(models);
   } catch {
     return Response.json(withSafeModelLoadFailure(EMPTY_MODELS));
   }

@@ -2,14 +2,12 @@ import { buildApiKeyProviderList, buildOAuthProviderList } from "@/lib/provider-
 import { collectProviderListingInputs } from "@/lib/provider-listing-runtime";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
-import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
 // Providers that declare an OAuth login method, including anthropic
 // (Claude Pro/Max) — see lib/provider-listing.ts (#309).
 export async function GET(req: Request) {
-  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "企业模式不提供供应商配置入口" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   const modelRuntime = await createModelRuntimeWithExtensions();

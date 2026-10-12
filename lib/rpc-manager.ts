@@ -55,7 +55,6 @@ import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createRuoyiWorkspaceToolGuard } from "./ruoyi-workspace-tool-guard";
-import { createRuoyiQuotaExtension } from "./ruoyi-quota-extension";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import {
@@ -411,10 +410,6 @@ export class AgentSessionWrapper {
 
   getRuoyiAuthorization(): string | undefined {
     return this.ruoyiAuthorizationRef?.current;
-  }
-
-  getRuoyiModelPolicy(): RuoyiAgentPolicy["modelPolicy"] | undefined {
-    return this.ruoyiPolicyRef?.current.modelPolicy;
   }
 
   get streamingMessage() {
@@ -1052,10 +1047,6 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        if (this.ruoyiPolicyRef?.current.modelPolicy.modelManaged
-          && !this.ruoyiPolicyRef.current.modelPolicy.models.some((entry) => entry.provider === provider && entry.modelId === modelId)) {
-          throw new Error(`当前账户未获得模型权限: ${provider}/${modelId}`);
-        }
         let model = this.inner.modelRuntime.getModel(provider, modelId);
         if (!model) {
           await this.inner.modelRuntime.refresh({ allowNetwork: false });
@@ -2661,11 +2652,6 @@ export async function startRpcSession(
               systemPrompt: " ",
               extensionFactories: [
                 createRuoyiWorkspaceToolGuard(sessionCwd),
-                ...(ruoyiAuthorizationRef && ruoyiPolicyRef ? [createRuoyiQuotaExtension(
-                  () => ruoyiAuthorizationRef.current,
-                  () => ruoyiPolicyRef.current.modelPolicy,
-                  sessionManager.getSessionId(),
-                )] : []),
                 ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
                   () => ruoyiAuthorizationRef.current,
                   (tools) => {
@@ -2748,19 +2734,9 @@ export async function startRpcSession(
           : {}),
         ...(thinkingLevel ? { thinkingLevel } : {}),
       });
-    let startupModel = restoredModel && services.modelRuntime.hasConfiguredAuth(restoredModel.provider)
+    const startupModel = restoredModel && services.modelRuntime.hasConfiguredAuth(restoredModel.provider)
       ? restoredModel
       : initial?.model;
-    if (controlledRuoyiSession) {
-      const policyModels = ruoyiPolicyRef?.current.modelPolicy.models ?? [];
-      const policyDefault = policyModels.find((model) => model.modelCode === ruoyiPolicyRef?.current.modelPolicy.defaultModelCode)
-        ?? policyModels[0];
-      const allowed = new Set(policyModels.map((model) => `${model.provider}:${model.modelId}`));
-      const defaultModel = policyDefault
-        ? services.modelRuntime.getModel(policyDefault.provider, policyDefault.modelId)
-        : undefined;
-      startupModel = startupModel && allowed.has(`${startupModel.provider}:${startupModel.id}`) ? startupModel : defaultModel;
-    }
     const deferredModel = hasExistingMessages
       ? savedModel && !restoredModel
         ? findDeferredModel(services.modelRuntime, savedModel.provider, savedModel.modelId)
@@ -2773,11 +2749,7 @@ export async function startRpcSession(
         ? findDeferredModel(services.modelRuntime, defaultProvider, defaultModelId)
         : undefined)
       : undefined;
-    const scopedModels = controlledRuoyiSession
-      ? scope.scopedModels.filter((scoped) => (ruoyiPolicyRef?.current.modelPolicy.models ?? []).some((allowed) =>
-        allowed.provider === scoped.model.provider && allowed.modelId === scoped.model.id,
-      ))
-      : scope.scopedModels;
+    const scopedModels = scope.scopedModels;
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,

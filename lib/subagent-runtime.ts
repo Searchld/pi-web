@@ -46,8 +46,6 @@ import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-sett
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
-import type { RuoyiModelPolicy } from "./ruoyi-tool-policy";
-import { createRuoyiQuotaExtension } from "./ruoyi-quota-extension";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -60,7 +58,6 @@ interface HostSession {
   isRuoyiSubagentToolEnabled?(name: string): boolean;
   getRuoyiCodingToolNames?(): readonly string[] | undefined;
   getRuoyiAuthorization?(): string | undefined;
-  getRuoyiModelPolicy?(): RuoyiModelPolicy | undefined;
   /**
    * Connect the session's MCP servers before a run prompts the SDK session directly, past the
    * wrapper's `send()`; false when Stop or `signal` ended the wait and the run must not start.
@@ -308,11 +305,8 @@ export function createSubagentController(
 
       const agentDir = getAgentDir();
       const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
-      const ruoyiModelPolicy = isRuoyiSubagent ? parent.getRuoyiModelPolicy?.() : undefined;
       const ruoyiAuthorization = isRuoyiSubagent ? parent.getRuoyiAuthorization?.() : undefined;
-      if (isRuoyiSubagent && (!ruoyiModelPolicy || !ruoyiAuthorization || ruoyiModelPolicy.models.length === 0)) {
-        throw new Error("当前账户未获得子 Agent 模型权限");
-      }
+      if (isRuoyiSubagent && !ruoyiAuthorization) throw new Error("缺少当前系统用户令牌");
       const settingsManager = SettingsManager.create(childCwd, agentDir);
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
@@ -368,11 +362,6 @@ export function createSubagentController(
         ...(codemodeExtension ? [codemodeExtension] : []),
         ...(mcp ? [...mcp.extensions, createSubagentMcpPolicyExtension(() => mcpScope)] : []),
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
-        ...(isRuoyiSubagent ? [createRuoyiQuotaExtension(
-          () => ruoyiAuthorization,
-          () => ruoyiModelPolicy,
-          sessionManager.getSessionId(),
-        )] : []),
       ];
       if (!chatOnly) initTheme();
       const services = await createAgentSessionServices({
@@ -475,11 +464,6 @@ export function createSubagentController(
       const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
       const selectedModel = (callModel ?? profileModel)?.model ?? parentModel;
       if (!selectedModel) throw new Error("子 Agent 未找到可用模型");
-      if (isRuoyiSubagent && !ruoyiModelPolicy!.models.some((model) =>
-        model.provider === selectedModel.provider && model.modelId === selectedModel.id,
-      )) {
-        throw new Error("当前账户未获得该子 Agent 模型权限");
-      }
       const { session: inner } = await createAgentSessionFromServices({
         services,
         sessionManager,

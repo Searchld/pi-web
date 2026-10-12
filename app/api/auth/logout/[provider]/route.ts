@@ -2,7 +2,6 @@ import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
-import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +9,6 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
-  if (isRuoyiIntegrationEnabled()) return Response.json({ error: "企业模式不允许在 Pi Web 管理供应商凭据" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   const { provider } = await params;

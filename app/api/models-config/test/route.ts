@@ -6,7 +6,6 @@ import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/com
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
-import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +27,6 @@ function getAssistantText(message: AssistantMessage): string {
 }
 
 export async function POST(req: Request) {
-  if (isRuoyiIntegrationEnabled()) return NextResponse.json({ ok: false, error: "RuoYi 模式下不允许测试宿主机模型配置" }, { status: 403 });
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   if (!isApiRequestAllowed(req)) {
