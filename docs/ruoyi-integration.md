@@ -6,7 +6,7 @@
 
 主会话固定使用只读文件工具，同时会从 RuoYi `GET /agent/v1/business-tools` 获取当前用户可用的业务工具目录，并将每项注册为 `system_business_<工具名>`。模型调用时会将原始问题提交至 `POST /agent/v1/business-tools/execute`；Pi Web 不配置也不回退到服务账号，调用只携带当前请求已验证的 RuoYi 用户令牌。
 
-因此，业务工具是否可见、是否可执行、能查询哪些数据，最终都由 RuoYi 的 `agent:chat:use`、具体业务权限及数据范围校验决定。业务查询会话至少还需授予 `agent:read`，以启用主会话的只读工具和业务工具扩展。Pi Web 只过滤不合法的工具目录项，并把令牌保留在运行内存，不写入会话 JSONL 或发送给浏览器。
+因此，业务工具是否可见、是否可执行、能查询哪些数据，最终都由 RuoYi 的 `agent:chat:use`、具体业务权限及数据范围校验决定。业务查询会话至少还需授予 `agent:tool:read`，以启用主会话的只读工具和业务工具扩展。Pi Web 只过滤不合法的工具目录项，并把令牌保留在运行内存，不写入会话 JSONL 或发送给浏览器。
 
 ## Agent 工具授权
 
@@ -38,6 +38,44 @@ NEXT_PUBLIC_RUOYI_EMBED_ORIGIN=https://你的-ruoyi-域名
 ```
 
 `PI_WEB_BASE_PATH` 和 `NEXT_PUBLIC_RUOYI_EMBED_ORIGIN` 是构建时变量。RuoYi 的 `VITE_QIMIAO_WEB_URL`、反向代理路径和 `PI_WEB_BASE_PATH` 必须都使用 `/xi-web`。反向代理应保留此前缀转发给 Pi Web，不能在 `proxy_pass` 中将其剥掉。
+
+Nginx 应同时保留精确路径和子路径代理，`proxy_pass` 后面不能加 `/`，否则 `/xi-web` 会被剥离，导致 Next.js 的 `basePath` 与实际请求不一致。不要把 `/xi-web` 重定向到 `/xi-web/`，否则会与 Next.js 的规范路径发生循环跳转。
+
+```nginx
+location = /xi-web {
+    client_max_body_size 5000m;
+    proxy_pass http://127.0.0.1:30141;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+}
+
+location ^~ /xi-web/ {
+    client_max_body_size 5000m;
+    proxy_pass http://127.0.0.1:30141;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+}
+```
 
 ## 隔离规则
 
