@@ -1442,7 +1442,8 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     setProjectTrust(null);
     setProjectTrustDialogOpen(false);
     setProjectTrustError(null);
-    if (!projectTrustCwd) return;
+    // RuoYi 会话禁止读取或信任项目配置，避免项目级 MCP/扩展进入受控会话。
+    if (isRuoyiIntegration || !projectTrustCwd) return;
 
     const controller = new AbortController();
     // The answer also lists the project's MCP servers (`mcpFile`, `mcpServers`), unused here: the
@@ -1460,10 +1461,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         console.error("Failed to load project trust:", error);
       });
     return () => controller.abort();
-  }, [projectTrustCwd]);
+  }, [isRuoyiIntegration, projectTrustCwd]);
 
   const handleTrustProject = useCallback(async () => {
-    if (!projectTrustCwd || projectTrustBusy) return;
+    if (isRuoyiIntegration || !projectTrustCwd || projectTrustBusy) return;
     setProjectTrustBusy(true);
     setProjectTrustError(null);
     try {
@@ -1487,7 +1488,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     } finally {
       setProjectTrustBusy(false);
     }
-  }, [projectTrustBusy, projectTrustCwd]);
+  }, [isRuoyiIntegration, projectTrustBusy, projectTrustCwd]);
 
   // The restricted-mode banner and Settings › MCP's trust notice open the same dialog.
   const openProjectTrustDialog = useCallback(() => {
@@ -1599,7 +1600,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   );
 
   const renderProjectTrustWarning = (mobileBanner: boolean) => {
-    if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
+    if (isRuoyiIntegration || !showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
     return (
       <button
         type="button"
@@ -2813,13 +2814,13 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           setModelsRefreshKey((key) => key + 1);
         }}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
-        projectTrust={projectTrust}
-        onOpenTrustDialog={openProjectTrustDialog}
+        projectTrust={isRuoyiIntegration ? null : projectTrust}
+        onOpenTrustDialog={isRuoyiIntegration ? undefined : openProjectTrustDialog}
         onProjectTrustChanged={handleProjectTrustChanged}
       />
     )}
     {/* After Settings, so it opens above it (z-index 1100 over 1000) when Settings › MCP asks for it. */}
-    {projectTrustDialogOpen && projectTrustCwd && (
+    {!isRuoyiIntegration && projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}
         busy={projectTrustBusy}
