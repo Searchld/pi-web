@@ -336,6 +336,7 @@ export function TreeNode({
   return (
     <div>
       <div
+        className="file-explorer-item"
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -367,6 +368,7 @@ export function TreeNode({
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
         <span
+          className="file-explorer-item-name"
           data-hidden-reason={hidden}
           style={{
             fontSize: 12,

@@ -45,7 +45,11 @@ import {
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { isRuoyiIntegrationEnabled } from "./ruoyi-identity";
-import { BUSINESS_AGENT_TOOL_PREFIX, createRuoyiBusinessToolsExtension } from "./ruoyi-business-tools";
+import {
+  BUSINESS_AGENT_TOOL_PREFIX,
+  createRuoyiBusinessToolsExtension,
+  RUOYI_BUSINESS_SYSTEM_PROMPT,
+} from "./ruoyi-business-tools";
 import type { RuoyiAgentPolicy } from "./ruoyi-tool-policy";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
@@ -128,7 +132,7 @@ type ExtensionCommandContextActionsLike = {
 };
 
 type AgentSessionWrapperOptions = {
-  exactSystemPrompt?: () => string;
+  exactSystemPrompt?: () => string | undefined;
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
@@ -140,6 +144,8 @@ type AgentSessionWrapperOptions = {
   ruoyiAuthorizationRef?: { current?: string };
   /** RuoYi 当前用户的工具策略，仅保留在进程内。 */
   ruoyiPolicyRef?: { current: RuoyiAgentPolicy };
+  /** RuoYi 当前用户的提示词偏好；null 表示使用 Pi Web 默认提示词。 */
+  ruoyiSystemPromptRef?: { current: string | null };
   /** RuoYi 业务目录的中文名称。SDK 的 ToolInfo 不保证保留 label，故由包装层保存。 */
   ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
 };
@@ -236,6 +242,8 @@ export interface RpcSessionStartOptions {
   ruoyiAuthorization?: string;
   /** RuoYi 已按当前用户计算的工具清单，绝不写入会话文件。 */
   ruoyiPolicy?: RuoyiAgentPolicy;
+  /** RuoYi 当前用户保存的提示词；null 时使用 Pi Web 默认提示词。 */
+  ruoyiSystemPrompt?: string | null;
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
@@ -337,7 +345,7 @@ export class AgentSessionWrapper {
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
-  private readonly exactSystemPrompt?: () => string;
+  private readonly exactSystemPrompt?: () => string | undefined;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
@@ -345,6 +353,7 @@ export class AgentSessionWrapper {
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private readonly ruoyiAuthorizationRef?: { current?: string };
   private readonly ruoyiPolicyRef?: { current: RuoyiAgentPolicy };
+  private readonly ruoyiSystemPromptRef?: { current: string | null };
   private readonly ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
@@ -376,6 +385,7 @@ export class AgentSessionWrapper {
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
     this.ruoyiAuthorizationRef = options.ruoyiAuthorizationRef;
     this.ruoyiPolicyRef = options.ruoyiPolicyRef;
+    this.ruoyiSystemPromptRef = options.ruoyiSystemPromptRef;
     this.ruoyiBusinessToolLabels = options.ruoyiBusinessToolLabels;
   }
 
@@ -398,6 +408,10 @@ export class AgentSessionWrapper {
 
   setRuoyiPolicy(policy: RuoyiAgentPolicy): void {
     if (this.ruoyiPolicyRef) this.ruoyiPolicyRef.current = policy;
+  }
+
+  setRuoyiSystemPrompt(prompt: string | null): void {
+    if (this.ruoyiSystemPromptRef) this.ruoyiSystemPromptRef.current = prompt;
   }
 
   isRuoyiSubagentToolEnabled(name: string): boolean {
@@ -2539,6 +2553,11 @@ export async function startRpcSession(
   const ruoyiPolicyRef = isRuoyiSession && options.ruoyiPolicy
     ? { current: options.ruoyiPolicy }
     : undefined;
+  // undefined keeps the historical business prompt for callers that have not
+  // loaded the preference yet; null explicitly restores Pi Web's default.
+  const ruoyiSystemPromptRef = controlledRuoyiSession
+    ? { current: options.ruoyiSystemPrompt === undefined ? RUOYI_BUSINESS_SYSTEM_PROMPT : options.ruoyiSystemPrompt }
+    : undefined;
   // SDK 的 ToolInfo 在部分版本中丢弃 label；保留目录映射仅用于工具页展示。
   const ruoyiBusinessToolLabels = ruoyiAuthorizationRef ? new Map<string, string>() : undefined;
   const ruoyiExtensionsEnabled = Boolean(
@@ -2584,7 +2603,7 @@ export async function startRpcSession(
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
     // after the session is created, so the getter is filled in below.
-    const exactSystemPromptRef: { current?: () => string } = {};
+    const exactSystemPromptRef: { current?: () => string | undefined } = {};
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
@@ -2649,8 +2668,8 @@ export async function startRpcSession(
               noThemes: true,
               noContextFiles: true,
               disabledBuiltinExtensions: ["mcp", "codemode", "tool-search"],
-              systemPrompt: " ",
               extensionFactories: [
+                exactSystemPromptExtension,
                 createRuoyiWorkspaceToolGuard(sessionCwd),
                 ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
                   () => ruoyiAuthorizationRef.current,
@@ -2785,6 +2804,8 @@ export async function startRpcSession(
     skillsBinding?.setActiveToolsGetter(() => inner.getActiveToolNames());
     const exactSystemPrompt = subagentResources
       ? skillsBinding!.getExactSystemPrompt
+      : controlledRuoyiSession
+        ? () => ruoyiSystemPromptRef!.current ?? undefined
       : chatOnly && !controlledRuoyiSession
         ? () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
         : undefined;
@@ -2803,6 +2824,7 @@ export async function startRpcSession(
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
       ...(ruoyiAuthorizationRef ? { ruoyiAuthorizationRef } : {}),
       ...(ruoyiPolicyRef ? { ruoyiPolicyRef } : {}),
+      ...(ruoyiSystemPromptRef ? { ruoyiSystemPromptRef } : {}),
       ...(ruoyiBusinessToolLabels ? { ruoyiBusinessToolLabels } : {}),
     });
     const realSessionId = inner.sessionId as string;

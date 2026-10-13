@@ -17,7 +17,7 @@ import {
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
+import type { ProjectTrustStatus, RuoyiSystemPromptResponse, ToolSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
   settingsSectionRequiresProject,
@@ -29,7 +29,6 @@ import {
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
-import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -87,11 +86,13 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const [pushRegistering, setPushRegistering] = useState(false);
-  const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [ruoyiPrompt, setRuoyiPrompt] = useState<RuoyiSystemPromptResponse | null>(null);
+  const [ruoyiPromptDraft, setRuoyiPromptDraft] = useState("");
+  const [ruoyiPromptSaving, setRuoyiPromptSaving] = useState(false);
+  const [ruoyiPromptStatus, setRuoyiPromptStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
@@ -99,6 +100,24 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       .then((response) => response.ok ? response.json() : null)
       .then((data: { enabled?: boolean } | null) => setWebAuthEnabled(data?.enabled === true))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/ruoyi-system-prompt")
+      .then(async (response) => {
+        if (response.status === 404 || response.status === 403) return null;
+        const data = await response.json() as RuoyiSystemPromptResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        return data;
+      })
+      .then((data) => {
+        if (cancelled || !data) return;
+        setRuoyiPrompt(data);
+        setRuoyiPromptDraft(data.prompt);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const logOut = async () => {
@@ -152,25 +171,25 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     }
   };
 
-  const registerPush = async () => {
-    if (pushRegistering) return;
-    setPushRegistering(true);
-    setPushStatus(null);
+  const saveRuoyiPrompt = async (enabled = ruoyiPrompt?.enabled) => {
+    if (enabled === undefined || ruoyiPromptSaving) return;
+    setRuoyiPromptSaving(true);
+    setRuoyiPromptStatus(null);
     try {
-      if (typeof window === "undefined" || !("Notification" in window)) {
-        throw new Error("unsupported or not permitted");
-      }
-      const permission = Notification.permission === "default"
-        ? await Notification.requestPermission()
-        : Notification.permission;
-      if (permission !== "granted") throw new Error("unsupported or not permitted");
-      const ok = await setupPushSubscription(locale);
-      if (!ok) throw new Error("unsupported or not permitted");
-      setPushStatus({ kind: "ok", message: t("settings.pushRegistered") });
+      const response = await fetch("/api/ruoyi-system-prompt", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, prompt: ruoyiPromptDraft }),
+      });
+      const data = await response.json() as RuoyiSystemPromptResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setRuoyiPrompt(data);
+      setRuoyiPromptDraft(data.prompt);
+      setRuoyiPromptStatus({ kind: "ok", message: t("settings.ruoyiPromptSaved") });
     } catch (cause) {
-      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${cause instanceof Error ? cause.message : String(cause)}` });
+      setRuoyiPromptStatus({ kind: "error", message: cause instanceof Error ? cause.message : String(cause) });
     } finally {
-      setPushRegistering(false);
+      setRuoyiPromptSaving(false);
     }
   };
 
@@ -318,6 +337,45 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
       </section>
 
+      {ruoyiPrompt && (
+        <section className="settings-general-section">
+          <h3 className="settings-general-heading">{t("settings.ruoyiPrompt")}</h3>
+          <p className="settings-general-description">{t("settings.ruoyiPromptDescription")}</p>
+          <div className="settings-shell-option">
+            <span>{t("settings.ruoyiPromptEnabled")}</span>
+            <ConfigSwitch
+              checked={ruoyiPrompt.enabled}
+              loading={ruoyiPromptSaving}
+              label={t("settings.ruoyiPromptEnabled")}
+              onChange={(enabled) => void saveRuoyiPrompt(enabled)}
+            />
+          </div>
+          <label className="settings-ruoyi-prompt-label" htmlFor="settings-ruoyi-prompt">{t("settings.ruoyiPromptEditor")}</label>
+          <textarea
+            id="settings-ruoyi-prompt"
+            className="settings-ruoyi-prompt"
+            value={ruoyiPromptDraft}
+            disabled={!ruoyiPrompt.enabled || ruoyiPromptSaving}
+            onChange={(event) => setRuoyiPromptDraft(event.target.value)}
+          />
+          <div className="settings-ruoyi-prompt-actions">
+            <ConfigButton
+              variant="secondary"
+              size="small"
+              disabled={ruoyiPromptSaving || !ruoyiPrompt.enabled || ruoyiPromptDraft === ruoyiPrompt.prompt}
+              onClick={() => void saveRuoyiPrompt()}
+            >
+              {ruoyiPromptSaving ? t("settings.ruoyiPromptSaving") : t("settings.ruoyiPromptSave")}
+            </ConfigButton>
+            {ruoyiPromptStatus && (
+              <span role="status" className={ruoyiPromptStatus.kind === "error" ? "settings-general-error" : "settings-ruoyi-prompt-status"}>
+                {ruoyiPromptStatus.message}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.sidebar")}</h3>
         <div className="settings-chat-options">
@@ -373,31 +431,6 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
-
-      <section className="settings-general-section">
-        <h3 className="settings-general-heading">{t("settings.pushPermission")}</h3>
-        <p className="settings-general-description">{t("settings.pushPermissionDescription")}</p>
-        <div className="settings-shell-option">
-          <span>{t("settings.pushPermission")}</span>
-          <button
-            type="button"
-            className="config-button config-button-small config-button-secondary"
-            disabled={pushRegistering}
-            onClick={() => void registerPush()}
-          >
-            {pushRegistering ? t("settings.pushRegisterLoading") : t("settings.pushRegister")}
-          </button>
-        </div>
-        {pushStatus && (
-          <p
-            role="status"
-            className="settings-general-error"
-            style={pushStatus.kind === "ok" ? { color: "var(--accent)" } : undefined}
-          >
-            {pushStatus.message}
-          </p>
-        )}
-      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>

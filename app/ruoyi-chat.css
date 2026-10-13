@@ -1,0 +1,72 @@
+/*
+ * RuoYi 嵌入态的消息区皮肤。
+ *
+ * 仅依赖 0.12 已有的消息 DOM 与语义 class，不参与消息分组、流式状态、
+ * 历史分页或工具交互。需要回退时删除本文件和 globals.css 的一行导入即可。
+ */
+.qm-art-shell .qm-ruoyi-chat {
+  background:
+    radial-gradient(ellipse 72% 54% at 50% 6%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 72%),
+    var(--bg);
+}
+
+.qm-art-shell .qm-ruoyi-message-scroll {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 3%, var(--bg)), var(--bg) 180px);
+}
+
+.qm-art-shell .qm-ruoyi-message-list {
+  padding-top: 10px;
+  padding-bottom: 22px;
+  font-family: var(--font-ui);
+  font-weight: var(--font-ui-weight);
+}
+
+.qm-art-shell .qm-ruoyi-message-list [data-message-role="user"] {
+  margin-bottom: 20px !important;
+}
+
+.qm-art-shell .qm-ruoyi-message-list [data-message-role="user"] > div:first-child > div {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border)) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.qm-art-shell .qm-ruoyi-message-list [data-message-role="assistant"] {
+  margin-bottom: 20px !important;
+}
+
+/* AssistantMessageView 的第二个直接子节点是正文与工具块的既有容器。 */
+.qm-art-shell .qm-ruoyi-message-list [data-message-role="assistant"] > div:nth-child(2) {
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 96%, var(--accent));
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.qm-art-shell .qm-ruoyi-message-list [data-message-role="assistant"] > div:first-child {
+  padding: 0 2px;
+  color: var(--text-dim) !important;
+  font-family: var(--font-ui);
+}
+
+.qm-art-shell .qm-ruoyi-process-details {
+  margin-bottom: 16px !important;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-panel) 54%, var(--bg));
+}
+
+.qm-art-shell .qm-ruoyi-process-details-toggle {
+  min-height: 26px !important;
+  padding: 3px 2px !important;
+  color: var(--text-muted) !important;
+  font-family: var(--font-ui);
+}
+
+.qm-art-shell .qm-ruoyi-process-details-content {
+  margin-top: 7px !important;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+}

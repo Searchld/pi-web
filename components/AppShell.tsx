@@ -18,6 +18,7 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { TerminalPanel } from "./TerminalPanel";
+import { DigitalHumanPanel, type DigitalHumanHandle } from "./DigitalHumanPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
@@ -105,16 +106,34 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const router = useRouter();
   const searchParams = useSearchParams();
   const isEmbeddedRuoyi = searchParams.get("embedded") === "1";
+  const activeToolbarBackground = isRuoyiIntegration ? "#ecf5ff" : "var(--bg-selected)";
+  const activeToolbarColor = isRuoyiIntegration ? "#409eff" : "var(--text)";
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
   const [isRuoyiAuthenticated, setIsRuoyiAuthenticated] = useState(() => !isEmbeddedRuoyi);
   const ruoyiAuthTokenRef = useRef<string | null>(null);
   const ruoyiAuthAbortRef = useRef<AbortController | null>(null);
+  const ruoyiParentOriginRef = useRef<string | null>(null);
+  const getRuoyiParentOrigin = useCallback(() => {
+    if (ruoyiParentOriginRef.current) return ruoyiParentOriginRef.current;
+    try {
+      const referrerOrigin = new URL(document.referrer).origin;
+      return RUOYI_EMBED_ORIGINS.includes(referrerOrigin) ? referrerOrigin : null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const postRuoyiParentMessage = useCallback((message: { type: string; clientX?: number; clientY?: number }) => {
+    if (window.parent === window) return;
+    const origin = getRuoyiParentOrigin();
+    if (origin) window.parent.postMessage(message, origin);
+  }, [getRuoyiParentOrigin]);
   useEffect(() => {
-    if (!isEmbeddedRuoyi) return;
+    // 企业集成由服务端开关决定；URL 未保留 embedded 参数时，也必须接收父页握手，
+    // 否则标题栏的拖动和双击最大化无法把事件回传给 RuoYi 外层窗口。
+    if (!isRuoyiIntegration && !isEmbeddedRuoyi) return;
 
     const notifyParent = (type: "qimiao-authenticated" | "qimiao-auth-failed") => {
-      if (window.parent === window) return;
-      RUOYI_EMBED_ORIGINS.forEach((origin) => window.parent.postMessage({ type }, origin));
+      postRuoyiParentMessage({ type });
     };
     const establish = async (token: string) => {
       if (token === ruoyiAuthTokenRef.current) return;
@@ -160,11 +179,12 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       if (window.parent === window || event.source !== window.parent) return;
       if (!RUOYI_EMBED_ORIGINS.includes(event.origin)) return;
       if (event.data?.type !== "qimiao-auth" || typeof event.data.token !== "string" || !event.data.token.trim()) return;
+      ruoyiParentOriginRef.current = event.origin;
       void establish(event.data.token);
     };
     window.addEventListener("message", receive);
     if (window.parent !== window && RUOYI_EMBED_ORIGINS.length > 0) {
-      const ready = () => RUOYI_EMBED_ORIGINS.forEach((origin) => window.parent.postMessage({ type: "qimiao-ready" }, origin));
+      const ready = () => postRuoyiParentMessage({ type: "qimiao-ready" });
       ready();
       const retry = window.setTimeout(ready, 250);
       return () => {
@@ -177,7 +197,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       ruoyiAuthAbortRef.current?.abort();
       window.removeEventListener("message", receive);
     };
-  }, [isEmbeddedRuoyi, router]);
+  }, [isEmbeddedRuoyi, isRuoyiIntegration, postRuoyiParentMessage, router]);
   // Keep the system-theme subscription mounted for the lifetime of the app.
   useTheme();
   // Restore fonts even when Settings and the chat composer have not been opened.
@@ -347,6 +367,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [digitalHumanOpen, setDigitalHumanOpen] = useState(isRuoyiIntegration);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
   useEffect(() => {
@@ -424,6 +445,63 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
+  // 父页只接受配置来源的窗口控制消息；普通 Pi Web 不参与这个嵌入式交互。
+  const ruoyiToolbarPointerRef = useRef<{
+    id: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+  const postRuoyiDialogEvent = useCallback((message: { type: string; clientX?: number; clientY?: number }) => {
+    postRuoyiParentMessage(message);
+  }, [postRuoyiParentMessage]);
+  const isRuoyiToolbarWindowGesture = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false;
+    // 整个窗口顶栏都可作为标题栏：包括左侧 Web Agent、中间聊天和数字人顶部工具栏。
+    return Boolean(target.closest(".qm-art-topbar, .session-sidebar.is-ruoyi-embedded .sidebar-header, .digital-human-panel__header"));
+  }, []);
+  const handleRuoyiToolbarPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !isRuoyiToolbarWindowGesture(event.target)) return;
+    // 先保留原始单击。只有超过微小移动阈值时才捕获指针并进入拖动，避免按钮收不到 click。
+    ruoyiToolbarPointerRef.current = {
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+    };
+  }, [isRuoyiToolbarWindowGesture]);
+  const handleRuoyiToolbarPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pointer = ruoyiToolbarPointerRef.current;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    if (!pointer.dragging) {
+      if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < 4) return;
+      pointer.dragging = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      postRuoyiDialogEvent({ type: "qimiao-dialog-drag-start", clientX: pointer.startX, clientY: pointer.startY });
+    }
+    postRuoyiDialogEvent({ type: "qimiao-dialog-drag-move", clientX: event.clientX, clientY: event.clientY });
+  }, [postRuoyiDialogEvent]);
+  const handleRuoyiToolbarPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pointer = ruoyiToolbarPointerRef.current;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    if (pointer.dragging) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      postRuoyiDialogEvent({ type: "qimiao-dialog-drag-end" });
+    }
+    ruoyiToolbarPointerRef.current = null;
+  }, [postRuoyiDialogEvent]);
+  useEffect(() => {
+    if (!isRuoyiIntegration) return;
+    // 拖动时根节点会持有 pointer capture，双击事件的 target 会被重定向到根节点；
+    // 因此以坐标重新命中顶栏，而不是直接依赖 event.target。
+    const handleDocumentDoubleClick = (event: MouseEvent) => {
+      const target = document.elementFromPoint(event.clientX, event.clientY) ?? event.target;
+      if (!isRuoyiToolbarWindowGesture(target)) return;
+      postRuoyiDialogEvent({ type: "qimiao-dialog-toggle-fullscreen" });
+    };
+    document.addEventListener("dblclick", handleDocumentDoubleClick, true);
+    return () => document.removeEventListener("dblclick", handleDocumentDoubleClick, true);
+  }, [isRuoyiIntegration, isRuoyiToolbarWindowGesture, postRuoyiDialogEvent]);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -588,6 +666,15 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     setRightPanelOpen((open) => !open);
   }, [isMobile]);
 
+  const handleDigitalHumanToggle = useCallback(() => {
+    if (isMobile) {
+      setSidebarOpen(false);
+      setActiveTopPanel(null);
+      setMobileToolbarMoreOpen(false);
+    }
+    setDigitalHumanOpen((open) => !open);
+  }, [isMobile]);
+
   const handleRightPanelExpandToggle = useCallback(() => {
     setActiveTopPanel(null);
     setRightPanelExpanded((expanded) => !expanded);
@@ -643,6 +730,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   // Files unmount when inactive; workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  const digitalHumanRef = useRef<DigitalHumanHandle | null>(null);
+  useEffect(() => {
+    if (!digitalHumanOpen) digitalHumanRef.current?.stop();
+  }, [digitalHumanOpen]);
   const fileWorkspaceStatesRef = useRef(new Map<string, ParkedFileWorkspace>());
   // Bumped on every workspace switch. The active viewer reports its state as
   // it unmounts, tagged with the generation it rendered in, so the report of a
@@ -1744,11 +1835,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
               height: "100%", padding: mobile ? 0 : "0 12px",
-              background: activeTopPanel === "agents" ? "var(--bg-selected)" : "none",
+              background: activeTopPanel === "agents" ? activeToolbarBackground : "none",
               border: "none",
               borderTop: activeTopPanel === "agents" ? "2px solid var(--accent)" : "2px solid transparent",
               borderRight: "1px solid var(--border)",
-              color: activeTopPanel === "agents" ? "var(--text)" : "var(--text-muted)",
+              color: activeTopPanel === "agents" ? activeToolbarColor : "var(--text-muted)",
               cursor: "pointer", flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
               transition: "color 0.1s, background 0.1s",
             }}
@@ -1781,11 +1872,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0,
-              background: activeTopPanel === "branches" ? "var(--bg-selected)" : "none",
+              background: activeTopPanel === "branches" ? activeToolbarBackground : "none",
               border: "none",
               borderTop: activeTopPanel === "branches" ? "2px solid var(--accent)" : "2px solid transparent",
               borderRight: "1px solid var(--border)",
-              color: activeTopPanel === "branches" ? "var(--text)" : "var(--text-muted)",
+              color: activeTopPanel === "branches" ? activeToolbarColor : "var(--text-muted)",
               cursor: "pointer", flexShrink: 0,
             }}
             data-mobile-toolbar-action="branches"
@@ -1821,12 +1912,12 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
             height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "tools" ? "var(--bg-selected)" : "none",
+            background: activeTopPanel === "tools" ? activeToolbarBackground : "none",
             border: "none",
             borderTop: activeTopPanel === "tools" ? "2px solid var(--accent)" : "2px solid transparent",
             borderRight: "1px solid var(--border)",
             cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "tools" ? "var(--text)" : "var(--text-muted)",
+            color: activeTopPanel === "tools" ? activeToolbarColor : "var(--text-muted)",
             opacity: mobile && !showChat ? 0.45 : 1,
             fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
           }}
@@ -1917,7 +2008,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           overflow: "hidden",
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
-          background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
+          background: activeTopPanel === "session" ? activeToolbarBackground : "none",
           border: "none",
           borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
           fontSize: 11, color: "var(--text-muted)",
@@ -2031,16 +2122,51 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
-          background: rightPanelOpen ? "var(--bg-selected)" : "none",
+          background: rightPanelOpen ? activeToolbarBackground : "none",
           border: "none", borderLeft: "1px solid var(--border)",
-          color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+          color: rightPanelOpen ? activeToolbarColor : "var(--text-muted)",
           cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
         }}
         onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
-        onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+        onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? activeToolbarColor : "var(--text-muted)"; }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+        </svg>
+      </button>
+    );
+  };
+
+  const renderDigitalHumanToggle = (mobile: boolean) => {
+    // 面板展开时由其右上角的数字人图标负责隐藏；这里只保留隐藏后的恢复入口。
+    if (!isRuoyiIntegration || digitalHumanOpen) return null;
+    const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
+    return (
+      <button
+        type="button"
+        onClick={handleDigitalHumanToggle}
+        disabled={covered}
+        tabIndex={covered ? -1 : undefined}
+        aria-controls="digital-human-panel"
+        aria-expanded={false}
+        aria-hidden={covered ? true : undefined}
+        title="显示业务助手"
+        aria-label="显示业务助手"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+          visibility: covered ? "hidden" : "visible",
+          pointerEvents: covered ? "none" : "auto",
+          background: "none",
+          border: "none", borderLeft: "1px solid var(--border)",
+          color: "var(--text-muted)",
+          cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+        }}
+        onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
+      >
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8" r="3" /><path d="M5 21a7 7 0 0 1 14 0M19 4v4m2-2h-4" />
         </svg>
       </button>
     );
@@ -2148,7 +2274,13 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         }
       }
     `}</style>
-    <div style={{
+    <div
+      className={isRuoyiIntegration ? "qm-art-shell" : undefined}
+      onPointerDownCapture={isRuoyiIntegration ? handleRuoyiToolbarPointerDown : undefined}
+      onPointerMoveCapture={isRuoyiIntegration ? handleRuoyiToolbarPointerMove : undefined}
+      onPointerUpCapture={isRuoyiIntegration ? handleRuoyiToolbarPointerEnd : undefined}
+      onPointerCancelCapture={isRuoyiIntegration ? handleRuoyiToolbarPointerEnd : undefined}
+      style={{
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
@@ -2177,10 +2309,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
         inert={rightPanelFullWidth}
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
+        className={`sidebar-container qm-art-sidebar-panel${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
-          background: "var(--bg-panel)",
+          // RuoYi 侧栏以旧版 Pi Web 的纯白内容区为准，不能继承外层浅灰画布色。
+          background: isRuoyiIntegration ? "var(--bg)" : "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
@@ -2206,20 +2339,21 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        <div ref={topBarRef} className="qm-art-topbar" style={{ flexShrink: 0, background: "var(--bg)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+            aria-pressed={sidebarOpen}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+              background: sidebarOpen ? activeToolbarBackground : "none", border: "none", borderRight: "1px solid var(--border)",
+              color: sidebarOpen ? activeToolbarColor : "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = sidebarOpen ? activeToolbarColor : "var(--text-muted)"; }}
           >
             {sidebarOpen ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2278,6 +2412,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               {!isNarrowMobile && renderChatToolbarActions(true)}
               {renderSessionStatsButton(true)}
               {renderMainFileToggle(true)}
+              {renderDigitalHumanToggle(true)}
               {isNarrowMobile && mobileToolbarMoreOpen && (
                 <div
                   id="mobile-toolbar-actions"
@@ -2311,6 +2446,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}
+          {!isMobile && renderDigitalHumanToggle(false)}
           {isMobile && sessionHasBranches && (
             <BranchNavigator
               tree={branchTree}
@@ -2588,9 +2724,16 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               newSessionContextBar={newSessionContextBar}
+              businessMode={isRuoyiIntegration}
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
               onAgentEnd={handleAgentEnd}
+              onAssistantTextStart={() => digitalHumanRef.current?.start()}
+              onAssistantTextDelta={(text) => digitalHumanRef.current?.append(text)}
+              onAssistantTextEnd={(end) => {
+                if (end.aborted) digitalHumanRef.current?.stop();
+                else digitalHumanRef.current?.finish();
+              }}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
@@ -2623,10 +2766,14 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               role="status"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-               <div style={{ fontSize: 14, color: "var(--text)" }}>{translate("workspace.opening")}</div>
-              <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                {initialNavigation.requestedCwd}
+              <div style={{ fontSize: 14, color: "var(--text)" }}>
+                {isRuoyiIntegration ? "正在验证当前账号…" : translate("workspace.opening")}
               </div>
+              {!isRuoyiIntegration && (
+                <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                  {initialNavigation.requestedCwd}
+                </div>
+              )}
             </div>
           ) : initialCwdStatus === "error" ? (
             <div
@@ -2698,7 +2845,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           flexShrink: 0,
           height: "calc(36px + env(safe-area-inset-top))",
           paddingTop: "env(safe-area-inset-top)",
-          background: "var(--bg-panel)",
+          background: isRuoyiIntegration ? "var(--bg)" : "var(--bg-panel)",
           borderBottom: "1px solid var(--border)",
         }}>
           <div style={{ flex: 1, overflow: "hidden" }}>
@@ -2707,6 +2854,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               activeTabId={activeFileTabId ?? ""}
               onSelectTab={setActiveFileTabId}
               onCloseTab={handleCloseFileTab}
+              background={isRuoyiIntegration ? "var(--bg)" : undefined}
             />
           </div>
           <button
@@ -2715,6 +2863,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             onClick={handleRightPanelExpandToggle}
             aria-controls="file-panel"
             aria-pressed={rightPanelFullWidth}
+            style={isRuoyiIntegration && rightPanelFullWidth
+              ? { color: "#409eff", background: "#ecf5ff" }
+              : isRuoyiIntegration ? { background: "var(--bg)" } : undefined}
             title={translate(rightPanelFullWidth ? "files.restorePanelWidth" : "files.expandPanel")}
             aria-label={translate(rightPanelFullWidth ? "files.restorePanelWidth" : "files.expandPanel")}
           >
@@ -2734,15 +2885,21 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
+              background: isRuoyiIntegration ? "var(--bg)" : "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
               color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
             onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
             onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
+            {isRuoyiIntegration ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
+            )}
           </button>
         </div>
 
@@ -2800,6 +2957,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           )}
         </div>
       </div>
+      {isRuoyiIntegration && digitalHumanOpen && (
+        <aside id="digital-human-panel" className="digital-human-side-panel" aria-label="业务助手">
+          <DigitalHumanPanel ref={digitalHumanRef} onClose={() => setDigitalHumanOpen(false)} />
+        </aside>
+      )}
     </div>
     {settingsSection && (
       <SettingsPanel

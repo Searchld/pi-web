@@ -77,19 +77,21 @@ function useScramble(target: string): string {
   return text;
 }
 
-export function PiWebTitle({ onWidthChange }: {
+export function PiWebTitle({ onWidthChange, brandText }: {
   /**
    * After a commit that changed the text's length (in its code type, its
    * width): the toolbar row fits its labels again, before that paints.
    */
   onWidthChange?: () => void;
+  /** 宿主应用可替换默认品牌；点击后仍显示 Pi 版本信息。 */
+  brandText?: string;
 }) {
   const { t } = useI18n();
   const [versionShown, setVersionShown] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION;
   const piVersion = process.env.NEXT_PUBLIC_PI_VERSION;
-  const text = useScramble(versionShown ? brandVersionText(appVersion, piVersion) : BRAND_TEXT);
+  const text = useScramble(versionShown ? brandVersionText(appVersion, piVersion) : brandText ?? BRAND_TEXT);
 
   useLayoutEffect(() => {
     onWidthChange?.();

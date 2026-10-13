@@ -22,6 +22,8 @@ interface Props {
   onRevealHistory: () => void;
   /** Turns of the branch the server has not sent yet: numbers continue from it (#791). */
   turnsBefore: number;
+  /** RuoYi 嵌入态让导航条与业务画布保持白底。 */
+  lightSurface?: boolean;
 }
 
 const MINIMAP_WIDTH = 36;
@@ -253,6 +255,7 @@ export const ChatMinimap = memo(function ChatMinimap({
   messageRefs,
   onRevealHistory,
   turnsBefore,
+  lightSurface = false,
 }: Props) {
   const { t } = useI18n();
   const [visible, setVisible] = useState(false);
@@ -653,7 +656,7 @@ export const ChatMinimap = memo(function ChatMinimap({
         cursor: "pointer",
         userSelect: "none",
         borderLeft: "1px solid var(--border)",
-        background: "var(--bg-panel)",
+        background: lightSurface ? "var(--bg)" : "var(--bg-panel)",
         overflow: "visible",
       }}
     >
@@ -713,9 +716,17 @@ export const ChatMinimap = memo(function ChatMinimap({
                 width: 8,
                 height: 8,
                 borderRadius: 2,
-                background: isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)",
-                border: `1.5px solid ${isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)"}`,
-                boxShadow: isActive ? "0 0 0 2px var(--bg-panel)" : "none",
+                background: lightSurface
+                  ? (isActive
+                    ? "color-mix(in srgb, var(--accent) 28%, var(--bg))"
+                    : "color-mix(in srgb, var(--text-muted) 14%, var(--bg))")
+                  : (isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)"),
+                border: `1.5px solid ${lightSurface
+                  ? (isActive
+                    ? "color-mix(in srgb, var(--accent) 72%, var(--border))"
+                    : "color-mix(in srgb, var(--text-muted) 45%, var(--border))")
+                  : (isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)")}`,
+                boxShadow: isActive ? `0 0 0 2px ${lightSurface ? "var(--bg)" : "var(--bg-panel)"}` : "none",
                 transition: "transform 0.1s, background 0.1s",
                 transform: isNearest ? "scale(1.25)" : "scale(1)",
               }}

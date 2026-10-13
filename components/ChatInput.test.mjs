@@ -408,6 +408,25 @@ test("renders the compact composer with the standard Send button and no session 
   assert.doesNotMatch(html, /type="file"|Attach files|Change tool preset/);
 });
 
+test("groups the normal text box and bottom controls in one composer surface", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+      }),
+    ),
+  );
+
+  assert.match(html, /class="chat-composer-surface"/);
+  assert.match(html, /class="chat-composer-card"/);
+  assert.match(html, /class="chat-input-controls chat-composer-controls"/);
+  assert.ok(html.indexOf("chat-composer-card") < html.indexOf("chat-composer-controls"));
+});
+
 test("the attach button takes any file when the chat handles them, and images only otherwise (#1101)", () => {
   const render = (props) => renderToStaticMarkup(
     React.createElement(I18nProvider, null, React.createElement(ChatInput, {

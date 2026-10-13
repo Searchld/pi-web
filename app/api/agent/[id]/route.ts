@@ -3,6 +3,8 @@ import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
+import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
+import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -27,6 +29,9 @@ export async function POST(
     }
     const toolNames = requestedToolNames as string[] | undefined;
     const ruoyiPolicy = access ? await loadRuoyiAgentPolicy(access.identity) : undefined;
+    const ruoyiSystemPrompt = access
+      ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT)
+      : undefined;
     if (access && body.type === "bash" && !ruoyiPolicy!.toolNames.includes("bash")) {
       throw new RuoyiToolAuthorizationError("当前账户未获得终端命令权限");
     }
@@ -50,6 +55,7 @@ export async function POST(
       if (access) {
         existing.setRuoyiAuthorization(access.identity.authorization);
         existing.setRuoyiPolicy(ruoyiPolicy!);
+        existing.setRuoyiSystemPrompt(ruoyiSystemPrompt!);
         if (!sameRuoyiCodingToolNames(existing.getActiveCodingToolNames(), ruoyiPolicy!.toolNames)) {
           const tightened = await setRpcSessionTools(id, existing.sessionFile || undefined, ruoyiPolicy!.toolNames, {
             ruoyiAuthorization: access.identity.authorization,
@@ -79,6 +85,7 @@ export async function POST(
       ...(initialToolNames !== undefined ? { toolNames: initialToolNames } : {}),
       ...(access ? { ruoyiAuthorization: access.identity.authorization } : {}),
       ...(ruoyiPolicy ? { ruoyiPolicy } : {}),
+      ...(ruoyiSystemPrompt !== undefined ? { ruoyiSystemPrompt } : {}),
       ...(access ? { forceToolNames: true } : {}),
     });
     const result = await session.send(body);

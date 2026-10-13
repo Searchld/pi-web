@@ -109,6 +109,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
+  replaceText: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
@@ -739,6 +740,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
       if (current.trim()) return;
+      valueRef.current = text;
+      setValue(text);
+      setAtQuery(null);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+    replaceText(text: string) {
+      const ta = textareaRef.current;
       valueRef.current = text;
       setValue(text);
       setAtQuery(null);
@@ -1907,8 +1920,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           </div>
         )}
 
-        {/* Main input */}
-        <div style={{ position: "relative", minWidth: 0 }}>
+        {/* 文本框与底部控制项共用一个输入面板，弹出菜单仍以该面板为定位基准。 */}
+        <div
+          className={compact ? undefined : "chat-composer-surface"}
+          onPointerDown={compact ? undefined : (event) => {
+            if (event.button !== 0) return;
+            const target = event.target;
+            if (target instanceof Element && target.closest("textarea, button, input, select, a, [contenteditable='true']")) return;
+            textareaRef.current?.focus({ preventScroll: true });
+          }}
+          style={{ position: "relative", minWidth: 0 }}
+        >
           {historyMenuOpen && inputHistory.length > 0 && (
             <div
               ref={historyMenuRef}
@@ -2252,20 +2274,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             );
           })()}
           <div
+            className="chat-composer-card"
             style={{
               minWidth: 0,
               display: "flex",
               flexDirection: compact ? "column" : "row",
               gap: 8,
               alignItems: compact ? "stretch" : "center",
-              background: "var(--bg)",
-              border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
-                ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: compact ? 0 : 14,
-              padding: compact ? 0 : isMobile ? "6px 6px 6px 12px" : "10px 10px 10px 14px",
-              boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+              padding: compact ? 0 : isMobile ? "6px 6px 4px 12px" : "10px 12px 5px 14px",
             } as React.CSSProperties}
           >
           <textarea
@@ -2314,7 +2330,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               fontSize: "var(--chat-content-font-size, 14px)",
               lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: compact ? 96 : 24,
+              minHeight: compact ? 96 : isMobile ? 40 : 44,
               maxHeight: 200,
               overflow: "auto",
             }}
@@ -2403,7 +2419,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             </button>
           )}
           </div>
-        </div>
 
         {/* Bash mode status label */}
         {bashMode && (
@@ -2413,8 +2428,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        {!compact && <div className="chat-input-controls" style={{
-          marginTop: isMobile ? 4 : 8,
+        {!compact && <div className="chat-input-controls chat-composer-controls" style={{
+          marginTop: 0,
           display: isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
           alignItems: "center",
@@ -2877,6 +2892,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           </div>
 
         </div>}
+        </div>
       </div>
     </fieldset>
   );

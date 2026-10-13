@@ -410,6 +410,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
+      data-message-role="user"
       style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -933,7 +934,7 @@ function AssistantMessageView({
       }}>
         {message.usage && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
+            {formatUsage(message.usage, t)}
           </div>
         )}
         {textContent && !isStreaming && (
@@ -2027,12 +2028,12 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+}, t: ReturnType<typeof useI18n>["t"]): string {
   const parts = [];
-  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
-  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
-  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
-  if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+  if (usage.input) parts.push(`${t("session.input")} ${usage.input.toLocaleString()}`);
+  if (usage.output) parts.push(`${t("session.output")} ${usage.output.toLocaleString()}`);
+  if (usage.cacheRead) parts.push(`${t("session.cacheRead")} ${usage.cacheRead.toLocaleString()}`);
+  if (usage.cacheWrite) parts.push(`${t("session.cacheWrite")} ${usage.cacheWrite.toLocaleString()}`);
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }

@@ -1869,6 +1869,50 @@
   font-size: 11px;
 }
 
+.settings-ruoyi-prompt-label {
+  display: block;
+  margin: 12px 0 5px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-ruoyi-prompt {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 600px;
+  min-height: 180px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.5 var(--font-mono);
+}
+
+.settings-ruoyi-prompt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-ruoyi-prompt:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.settings-ruoyi-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.settings-ruoyi-prompt-status {
+  color: var(--accent);
+  font-size: 11px;
+}
+
 @media (max-width: 640px) {
   .config-add-source-example.has-label {
     grid-template-columns: minmax(0, 1fr);

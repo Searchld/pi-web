@@ -6,6 +6,11 @@ import ts from "typescript";
 
 const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
 
+test("document preview keeps the configured application base path", () => {
+  assert.match(source, /import \{ withAppBasePath \} from "@\/lib\/app-base-path";/);
+  assert.match(source, /return withAppBasePath\(`\/api\/files\/\$\{encoded\}\?\$\{searchParams\.toString\(\)\}`\);/);
+});
+
 test("lightweight source rows are skipped for highlighted, diff, and preview views", () => {
   // Execute the source-view calculations without mounting the file-fetching component.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

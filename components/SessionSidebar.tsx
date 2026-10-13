@@ -110,6 +110,8 @@ import {
   UploadIcon,
 } from "./SidebarIcons";
 
+const EMPTY_GROUP_EXPANSION: Readonly<Record<string, boolean>> = {};
+
 interface FileManagerAvailability {
   supported: boolean;
   reason: string | null;
@@ -992,10 +994,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [explorerRefreshKey]);
 
   useEffect(() => {
+    // RuoYi 已固定用户工作目录，服务端也禁止暴露主目录。
+    if (hideWorkspacePicker) return;
     fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
       if (d.home) setHomeDir(d.home);
     }).catch(() => {});
-  }, []);
+  }, [hideWorkspacePicker]);
 
   const restoredRef = useRef(false);
 
@@ -1070,6 +1074,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Load worktrees for the current effective cwd
   const [wtRefreshKey, setWtRefreshKey] = useState(0);
   useLayoutEffect(() => {
+    // RuoYi 不提供 Git worktree 管理；隐藏选择器的同时不能继续请求受限接口。
+    if (hideWorkspacePicker) {
+      setWorktreeState(null);
+      setWorktreeLoadingCwd(null);
+      return;
+    }
     if (!selectedCwd) {
       setWorktreeState(null);
       setWorktreeLoadingCwd(null);
@@ -1106,7 +1116,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       });
     return () => { cancelled = true; };
-  }, [selectedCwd, wtRefreshKey, refreshKey]);
+  }, [hideWorkspacePicker, selectedCwd, wtRefreshKey, refreshKey]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
@@ -1394,6 +1404,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     () => effectiveGroupExpansion(groupExpansion, keptOpenGroups),
     [groupExpansion, keptOpenGroups],
   );
+  // RuoYi 每位用户只有一个服务端固定工作区；不展示项目标题时也不能让旧的
+  // 折叠偏好把该工作区的会话一并隐藏。
+  const treeGroupExpansion = hideWorkspacePicker ? EMPTY_GROUP_EXPANSION : shownGroupExpansion;
   const model = useMemo(() => buildSessionTree({
     sessions: allSessions,
     uiState,
@@ -1402,11 +1415,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
-    groupExpansion: shownGroupExpansion,
+    groupExpansion: treeGroupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
-  const sessionTreeRows = hideWorkspacePicker ? model.rows.filter((row) => row.kind !== "footer-open") : model.rows;
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, treeGroupExpansion, moreShown, pinnedCollapsed]);
+  const sessionTreeRows = hideWorkspacePicker
+    ? model.rows.filter((row) => row.kind !== "footer-open" && row.kind !== "group" && row.kind !== "group-empty")
+    : model.rows;
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -2359,6 +2374,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const treeLoading = loading || !uiStateLoaded;
   const treeProps = {
     layout: treeLayout,
+    roomy: hideWorkspacePicker,
     loading: treeLoading,
     error,
     renamingRootId,
@@ -2526,7 +2542,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   return (
     <div
       ref={setSidebarRoot}
-      className={`session-sidebar${stacked ? " is-files-below" : ""}${stacked && filesCollapsed ? " is-files-collapsed" : ""}${stacked && filesFold.moving ? " is-files-folding" : ""}${toast ? " has-toast" : ""}`}
+      className={`session-sidebar${hideWorkspacePicker ? " is-ruoyi-embedded" : ""}${stacked ? " is-files-below" : ""}${stacked && filesCollapsed ? " is-files-collapsed" : ""}${stacked && filesFold.moving ? " is-files-folding" : ""}${toast ? " has-toast" : ""}`}
       style={{ "--sidebar-files-height": `${filesSizer.width}px` } as CSSProperties}
       onFocus={(event) => { sidebarFocusRef.current = event.target; }}
       onBlur={(event) => { if (event.relatedTarget === null && !document.hasFocus()) return; if (!event.currentTarget.contains(event.relatedTarget)) sidebarFocusRef.current = null; }}
@@ -2556,7 +2572,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           stands there (the panel's anchor, the versions on a click), and
           the search is the sessions'. */}
       <div ref={headerRef} className="sidebar-header">
-        {stacked && <PiWebTitle onWidthChange={fitHeader} />}
+        {stacked && <PiWebTitle onWidthChange={fitHeader} brandText={hideWorkspacePicker ? "Web Agent" : undefined} />}
         {!stacked && (
           <div className="sidebar-tabs-list" role="tablist" aria-label={t("sidebar.tabsLabel")}>
             <button

@@ -3,6 +3,8 @@ import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError, type RuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
+import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
+import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +18,12 @@ export async function GET(
   const access = await requireIntegrationSessionAccess(req, id);
   if (access && isRuoyiAccessDenied(access)) return access;
   let ruoyiPolicy: RuoyiAgentPolicy | undefined;
+  let ruoyiSystemPrompt: string | null | undefined;
   try {
     ruoyiPolicy = access ? await loadRuoyiAgentPolicy(access.identity) : undefined;
+    ruoyiSystemPrompt = access
+      ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT)
+      : undefined;
   } catch (error) {
     return new Response(error instanceof Error ? error.message : "读取 RuoYi Agent 权限失败", {
       status: error instanceof RuoyiToolAuthorizationError ? 503 : 500,
@@ -31,6 +37,7 @@ export async function GET(
     if (access) {
       session.setRuoyiAuthorization(access.identity.authorization);
       session.setRuoyiPolicy(ruoyiPolicy!);
+      session.setRuoyiSystemPrompt(ruoyiSystemPrompt!);
     }
     sessionPromise = Promise.resolve(session);
   } else {
@@ -44,6 +51,7 @@ export async function GET(
       ...(toolNames !== undefined ? { toolNames } : {}),
       ...(access ? { ruoyiAuthorization: access.identity.authorization } : {}),
       ...(ruoyiPolicy ? { ruoyiPolicy } : {}),
+      ...(ruoyiSystemPrompt !== undefined ? { ruoyiSystemPrompt } : {}),
       ...(access ? { forceToolNames: true } : {}),
     }).then((result) => result.session);
   }

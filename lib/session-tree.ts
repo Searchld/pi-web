@@ -39,6 +39,12 @@ export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, n
   desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
   mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
 };
+
+/** RuoYi 嵌入态使用更舒展的桌面侧栏节奏，仍保留桌面交互逻辑。 */
+export const RUOYI_SIDEBAR_ROW_HEIGHTS: Record<SidebarRowKind, number> = {
+  "pinned-header": 34, session: 60, "pinned-more": 30, group: 34, "group-more": 30,
+  "group-empty": 34, spacer: 10, "footer-open": 34, "footer-archived": 34, "archive-group": 34,
+};
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
 /** How many more families each "show more" click reveals. */
@@ -650,8 +656,11 @@ export function familiesToDelete(
 }
 
 /** Prefix sums of row heights: length rows.length + 1, offsets[0] = 0. */
-export function getRowOffsets(rows: readonly SidebarRow[], layout: SidebarLayout): number[] {
-  const heights = SIDEBAR_ROW_HEIGHTS[layout];
+export function getRowOffsets(
+  rows: readonly SidebarRow[],
+  layout: SidebarLayout,
+  heights: Record<SidebarRowKind, number> = SIDEBAR_ROW_HEIGHTS[layout],
+): number[] {
   const offsets = new Array<number>(rows.length + 1);
   offsets[0] = 0;
   for (let index = 0; index < rows.length; index++) {

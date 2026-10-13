@@ -38,6 +38,16 @@ test("updates a reused message when its written files change", () => {
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
 });
 
+test("localizes assistant token-usage labels", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "查询完成。" }],
+    usage: { input: 1204, output: 878, cacheRead: 2176, cacheWrite: 0, cost: { total: 0 } },
+  });
+  assert.match(html, /Input 1,204 · Output 878 · Cache Read 2,176/);
+  assert.doesNotMatch(html, /cache R|\b(?:in|out)\b/);
+});
+
 test("matches response model aliases and otherwise includes the provider", () => {
   const names = {
     "gateway:claude-sonnet-5": "Sonnet 5",
@@ -339,6 +349,11 @@ test("marks persisted assistant messages with their source entry", () => {
 
   assert.match(html, /data-message-role="assistant"/);
   assert.match(html, /data-entry-id="assistant-entry"/);
+});
+
+test("marks user messages with their role for the scoped RuoYi visual skin", () => {
+  const html = renderMessage({ role: "user", content: "A business question" });
+  assert.match(html, /data-message-role="user"/);
 });
 
 test("renders a complete SDK skill expansion as a compact command", () => {

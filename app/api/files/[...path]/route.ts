@@ -35,6 +35,7 @@ import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 import { requireRuoyiToolAccess } from "@/lib/ruoyi-access";
+import { getRuoyiEmbedOrigins } from "@/lib/ruoyi-embed-origins";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -46,6 +47,13 @@ const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
 const XLSX_PREVIEW_MAX_SHEETS = 10;
 const XLSX_PREVIEW_MAX_ROWS = 500;
 const XLSX_PREVIEW_MAX_COLUMNS = 50;
+
+function documentPreviewContentSecurityPolicy(): string {
+  // 文档预览自身与 Pi Web 同源，但在 RuoYi 的外层 iframe 中还会有一个
+  // RuoYi 祖先页面。仅放行配置里的精确来源，避免放宽为任意站点可嵌入。
+  const ancestors = ["'self'", ...getRuoyiEmbedOrigins(process.env.NEXT_PUBLIC_RUOYI_EMBED_ORIGIN)].join(" ");
+  return `default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors ${ancestors}`;
+}
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -664,7 +672,7 @@ export async function GET(
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-cache",
-          "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+          "Content-Security-Policy": documentPreviewContentSecurityPolicy(),
           "Referrer-Policy": "no-referrer",
           "X-Content-Type-Options": "nosniff",
         },

@@ -49,6 +49,12 @@ export interface ToolSettingsResponse {
   codemodeInlineBudget: CodemodeInlineBudgetSetting;
 }
 
+/** RuoYi 用户自己的受控会话提示词设置；关闭时回落到 Pi Web 默认提示词。 */
+export interface RuoyiSystemPromptResponse {
+  enabled: boolean;
+  prompt: string;
+}
+
 export interface SkillSearchResult {
   package: string;
   installs: string;

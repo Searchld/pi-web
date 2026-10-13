@@ -19,6 +19,7 @@ import { splitForkSuffix } from "@/lib/session-fork-name";
 import { MAX_PROJECT_NAME_LENGTH, type ProjectMovePosition } from "@/lib/session-ui-state-shared";
 import {
   PINNED_MORE_KEY,
+  RUOYI_SIDEBAR_ROW_HEIGHTS,
   getRowOffsets,
   getVisibleRowIndices,
   revealScrollTop,
@@ -91,6 +92,8 @@ export interface SessionTreeReveal {
 export interface SessionTreeProps {
   rows: SidebarRow[];
   layout: SidebarLayout;
+  /** RuoYi 嵌入态的桌面侧栏使用更大的文字和行距。 */
+  roomy?: boolean;
   /** Shown above the footer rows when there are no session/group rows; null = none. */
   emptyLabel: string | null;
   /** Shows t("sidebar.loading") instead of rows. */
@@ -165,6 +168,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const {
     rows,
     layout,
+    roomy = false,
     emptyLabel,
     loading,
     error,
@@ -251,7 +255,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     setFocusedRowKey(null);
   }, []);
 
-  const offsets = useMemo(() => getRowOffsets(rows, layout), [rows, layout]);
+  const offsets = useMemo(() => getRowOffsets(rows, layout, roomy ? RUOYI_SIDEBAR_ROW_HEIGHTS : undefined), [rows, layout, roomy]);
   // A group header can be dragged to another place in its band (pinned
   // projects, or the others) when the band has another group.
   const canMoveGroups = Boolean(props.onMoveGroup);
@@ -399,7 +403,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     : null;
 
   return (
-    <div ref={treeRef} className={`session-tree${layout === "mobile" ? " is-mobile" : ""}${ghostProject ? " is-group-dragging" : ""}`}>
+    <div ref={treeRef} className={`session-tree${layout === "mobile" ? " is-mobile" : ""}${roomy ? " is-roomy" : ""}${ghostProject ? " is-group-dragging" : ""}`}>
       {loading && <div className="session-tree-message">{t("sidebar.loading")}</div>}
       {error && <div className="session-tree-message is-error">{error}</div>}
       {showEmpty && <div className="session-tree-message">{emptyLabel}</div>}
@@ -426,6 +430,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     key={row.key}
                     row={row}
                     layout={layout}
+                  roomy={roomy}
                     top={top}
                     height={height}
                     now={now}
@@ -485,6 +490,7 @@ function rowStyle(top: number, height: number) {
 const SessionRowView = memo(function SessionRowView({
   row,
   layout,
+  roomy,
   top,
   height,
   now,
@@ -495,6 +501,7 @@ const SessionRowView = memo(function SessionRowView({
 }: {
   row: SessionRow;
   layout: SidebarLayout;
+  roomy: boolean;
   top: number;
   height: number;
   now: number;
@@ -603,16 +610,34 @@ const SessionRowView = memo(function SessionRowView({
   // family, which would come straight back.
   const quickAction = layout === "desktop" && (context === "archive" || !status.running);
 
-  const mainContent = (
+  const titleContent = forkTitle ? (
+    <span className="session-tree-title has-fork-suffix">
+      <span className="session-tree-title-base">{forkTitle.base}</span>
+      <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
+    </span>
+  ) : (
+    <span className="session-tree-title">{title}</span>
+  );
+  const cardMeta = status.awaiting || status.running || status.unread || context === "pinned" || (context === "archive" && row.archivedAt !== null)
+    ? meta
+    : formatRelativeTime(family.latestModified, locale, nowDate);
+  const mainContent = roomy ? (
+    <span className="session-tree-card-content">
+      {titleContent}
+      <span className="session-tree-card-meta">
+        <span className={`session-tree-card-time${metaState}`} title={metaTitle}>{cardMeta}</span>
+        <span>{details}</span>
+        {branch && (
+          <span className="session-tree-card-branch">
+            <BranchIcon size={10} className="session-tree-branch-icon" />
+            {branch}
+          </span>
+        )}
+      </span>
+    </span>
+  ) : (
     <>
-      {forkTitle ? (
-        <span className="session-tree-title has-fork-suffix">
-          <span className="session-tree-title-base">{forkTitle.base}</span>
-          <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
-        </span>
-      ) : (
-        <span className="session-tree-title">{title}</span>
-      )}
+      {titleContent}
       {branch && (
         <span className="session-tree-branch">
           <BranchIcon size={10} className="session-tree-branch-icon" />

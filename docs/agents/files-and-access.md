@@ -35,7 +35,7 @@
 
 ## XLSX files open as a table preview
 - `.xlsx` uses `DocumentViewer` and `GET /api/files/... ?type=preview`, rather than the text reader: XLSX files are ZIP containers, so decoding them as UTF-8 produces `PK` and garbled content.
-- The route parses the workbook with SheetJS only after the normal file-root authorization. Its HTML is constructed from escaped cell display values (never spreadsheet HTML), returned with the same restrictive CSP and sandbox as DOCX previews. Downloads still use `type=download`.
+- The route parses the workbook with SheetJS only after the normal file-root authorization. Its HTML is constructed from escaped cell display values (never spreadsheet HTML), returned with a restrictive CSP and sandbox as DOCX previews. In RuoYi embedded mode, the CSP adds only the exact origins from `NEXT_PUBLIC_RUOYI_EMBED_ORIGIN` to `frame-ancestors`; the outer RuoYi iframe otherwise causes the browser to reject the nested document preview. Downloads still use `type=download`.
 - The preview is capped at 10 MiB, the first 10 worksheets, and 500 rows × 50 columns per worksheet. Formula expressions are not exposed; only the stored display value is rendered.
 
 ## Web password throttling

@@ -27,6 +27,8 @@ const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cj
 
 const nextConfig: NextConfig = {
   basePath,
+  // 嵌入式界面空间有限，开发工具圆形入口会遮挡内容。
+  devIndicators: false,
   outputFileTracingRoot: configDir,
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever

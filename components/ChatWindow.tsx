@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
@@ -19,6 +19,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
+import { BusinessIdleDemo } from "./BusinessIdleDemo";
 import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
@@ -26,6 +27,7 @@ import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, u
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { withAppBasePath } from "@/lib/app-base-path";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -52,12 +54,17 @@ interface Props {
   sessionRunning?: boolean;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
+  /** RuoYi 嵌入页的新建会话使用业务欢迎页。 */
+  businessMode?: boolean;
   /** Shown above the composer while a fresh composer is still empty: where its session starts. */
   newSessionContextBar?: ReactNode;
   /** A fresh composer's model and reasoning picks, carried from the composer it replaces. */
   initialNewSessionChoices?: NewSessionChoices | null;
   onNewSessionChoicesChange?: (choices: NewSessionChoices) => void;
   onAgentEnd?: (end: AgentEndInfo) => void;
+  onAssistantTextStart?: () => void;
+  onAssistantTextDelta?: (text: string) => void;
+  onAssistantTextEnd?: (end: AgentEndInfo) => void;
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
@@ -92,11 +99,12 @@ interface Props {
 }
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
+const BUSINESS_STARTER_PROMPT_KEYS = [
+  "chat.businessStarterAlerts",
+  "chat.businessStarterDevices",
+  "chat.businessStarterInlet",
+] as const;
 
-// One update check per page. Every fresh composer mounts the header again
-// (each move of the new-session bar does), and a link that turned up late
-// each time would lengthen the versions line under the reader's eyes; from
-// the second header on it is there in the first paint.
 let appUpdateCheck: Promise<AppUpdateResponse | null> | null = null;
 let appUpdateFound: AppUpdateResponse | null = null;
 
@@ -112,19 +120,13 @@ function checkAppUpdate(): Promise<AppUpdateResponse | null> {
       return result;
     })
     .catch(() => {
-      // Update checks are best-effort and must not interrupt a new session;
-      // a later header asks again.
       appUpdateCheck = null;
       return null;
     });
   return appUpdateCheck;
 }
 
-function NewSessionUpdateLink({
-  label,
-}: {
-  label: (version: string) => string;
-}) {
+function NewSessionUpdateLink({ label }: { label: (version: string) => string }) {
   const [update, setUpdate] = useState<AppUpdateResponse | null>(() => appUpdateFound);
 
   useEffect(() => {
@@ -138,19 +140,10 @@ function NewSessionUpdateLink({
 
   if (!update) return null;
   const accessibleLabel = label(update.latestVersion);
-
-  // In the versions line, after the version in use: "→ v<latest> ↗".
   return (
     <>
       <span className="new-session-meta-arrow" aria-hidden="true">→</span>
-      <a
-        className="new-session-update"
-        href={update.releaseUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={accessibleLabel}
-        aria-label={accessibleLabel}
-      >
+      <a className="new-session-update" href={update.releaseUrl} target="_blank" rel="noopener noreferrer" title={accessibleLabel} aria-label={accessibleLabel}>
         v{update.latestVersion}
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M7 17 17 7" />
@@ -201,9 +194,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div className="qm-ruoyi-process-details" style={{ marginBottom: 14 }}>
       <button
         type="button"
+        className="qm-ruoyi-process-details-toggle"
         aria-expanded={expanded || reveal}
         onClick={() => setExpanded((v) => !v)}
         style={{
@@ -230,7 +224,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
         </span>
       </button>
       {(expanded || reveal) && (
-        <div style={{ marginTop: 8 }}>
+        <div className="qm-ruoyi-process-details-content" style={{ marginTop: 8 }}>
           {children}
         </div>
       )}
@@ -238,9 +232,11 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, businessMode = false, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onAssistantTextEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  // 嵌入态直接订阅外观偏好，避免只依赖根 CSS 变量时 HMR/iframe 未及时重绘。
+  const { width: chatContentWidth, fontSize: chatContentFontSize } = useChatAppearance();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -257,8 +253,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     if (completionNotificationsEnabled && soundEnabledRef.current && !end.aborted) {
       playDoneSoundRef.current();
     }
+    onAssistantTextEnd?.(end);
     onAgentEnd?.(end);
-  }, [completionNotificationsEnabled, onAgentEnd]);
+  }, [completionNotificationsEnabled, onAgentEnd, onAssistantTextEnd]);
 
   const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
   const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
@@ -292,7 +289,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onAssistantTextStart, onAssistantTextDelta, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),
@@ -828,6 +825,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
+  const isBusinessEmpty = isEmptyNew && businessMode;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -1009,8 +1007,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   return (
     <div
-      className="chat-content relative flex h-full min-w-0 flex-col overflow-hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      className={`chat-content relative flex h-full min-w-0 flex-col overflow-hidden${businessMode ? " qm-ruoyi-chat" : ""}`}
+      style={{
+        paddingBottom: "env(safe-area-inset-bottom)",
+        "--chat-content-font-size": `${chatContentFontSize}px`,
+      } as CSSProperties}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -1072,6 +1073,27 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {extensionCustomUi && (
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
         )}
+        {isBusinessEmpty && (
+          <div className="qm-business-empty-stage">
+            <div className="qm-art-welcome-card" style={{ maxWidth: chatContentWidth }}>
+              <div className="qm-business-empty-brand">
+                <div>
+                  <div className="qm-business-empty-title">WebAgent</div>
+                  <div className="qm-business-empty-subtitle">{t("chat.businessWelcome")}</div>
+                  <div className="qm-business-empty-detail">{t("chat.businessWelcomeDetail")}</div>
+                </div>
+              </div>
+              <BusinessIdleDemo />
+              <div className="qm-business-starter-prompts" aria-label={t("chat.businessStarterTitle")}>
+                {BUSINESS_STARTER_PROMPT_KEYS.map((key) => (
+                  <button key={key} type="button" onClick={() => chatInputRef?.current?.replaceText(t(key))}>
+                    {t(key)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}
@@ -1079,11 +1101,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           // so it shows its scrollbar instead of hiding it behind the minimap (#788).
           // A stable gutter keeps the centred column from shifting when a short
           // session grows past one screen.
-          className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
+          className="scrollbar-subtle qm-ruoyi-message-scroll min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+            <div ref={messageContentRef} className="qm-ruoyi-message-list" onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: chatContentWidth, margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -1332,6 +1354,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
             turnsBefore={earlierTurnCount}
+            lightSurface={businessMode}
           />
         )}
         </>}
@@ -1444,12 +1467,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </button>
           </div>
         )}
-        {/* The brand (the logo, "Pi Web" and its versions line), then the
-            project/worktree row right above the composer, all on the
-            composer's left edge (.new-session-brand, .new-session-meta and
-            .new-session-context in app/globals.css; the side padding and
-            width are inline here). */}
-        {isEmptyNew && (
+        {isEmptyNew && !businessMode && (
           <div className="new-session-hero" style={{ paddingLeft: 16, paddingRight: isMobile ? 16 : 52 }}>
             <div className="new-session-hero-inner" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
               <div className="new-session-brand">
@@ -1476,7 +1494,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           commandsDisabled={sessionBusy}
         />
       </div>
-      {isEmptyNew && <div className="min-h-0 flex-1" />}
+      {isEmptyNew && !businessMode && <div className="min-h-0 flex-1" />}
     </div>
   );
 }

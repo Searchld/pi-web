@@ -20,3 +20,9 @@ test("inline SVG is served with a script-blocking content security policy", () =
   assert.match(streamBlock, /Content-Security-Policy/);
   assert.match(streamBlock, /default-src 'none'/);
 });
+
+test("document previews allow only configured RuoYi embedding origins", () => {
+  assert.match(source, /getRuoyiEmbedOrigins\(process\.env\.NEXT_PUBLIC_RUOYI_EMBED_ORIGIN\)/);
+  assert.match(source, /frame-ancestors \$\{ancestors\}/);
+  assert.match(source, /"Content-Security-Policy": documentPreviewContentSecurityPolicy\(\)/);
+});

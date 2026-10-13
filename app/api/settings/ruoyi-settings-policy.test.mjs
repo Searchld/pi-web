@@ -4,6 +4,7 @@ import test from "node:test";
 
 const routes = [
   ["general", "app/api/tools/settings/route.ts"],
+  ["general", "app/api/ruoyi-system-prompt/route.ts"],
   ["models", "app/api/models-config/route.ts"],
   ["models", "app/api/models-config/catalog/route.ts"],
   ["models", "app/api/models-config/discover/route.ts"],

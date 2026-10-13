@@ -881,6 +881,204 @@ a.session-tree-main {
   height: 32px;
 }
 
+/* RuoYi 工作台的正文采用较舒展的业务界面节奏；普通 Pi Web 保持紧凑密度。 */
+.session-tree.is-roomy .session-tree-title,
+.session-tree.is-roomy .session-tree-group-toggle,
+.session-tree.is-roomy .session-tree-archive-group {
+  font-size: 14px;
+}
+
+.session-tree.is-roomy .session-tree-meta,
+.session-tree.is-roomy .session-tree-summary,
+.session-tree.is-roomy .session-tree-branch,
+.session-tree.is-roomy .session-tree-group-empty,
+.session-tree.is-roomy .session-tree-more {
+  font-size: 12px;
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree-session {
+  padding-right: 8px;
+  padding-left: 22px;
+}
+
+/* Pi 默认全局使用等宽字体；RuoYi 左侧是业务导航，应与工作台使用同一无衬线字体。 */
+.session-sidebar.is-ruoyi-embedded,
+.session-sidebar.is-ruoyi-embedded button,
+.session-sidebar.is-ruoyi-embedded input {
+  font-family: var(--font-ui);
+  font-weight: var(--font-ui-weight);
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-brand {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* 嵌入 RuoYi 时，“新建”沿用 Element Plus 的 primary plain 按钮，而不是工具栏分隔单元格。 */
+.session-sidebar.is-ruoyi-embedded .sidebar-new-button {
+  align-self: center;
+  height: 28px;
+  margin: 0 8px 0 0;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--qm-art-active-color) 42%, var(--border));
+  border-radius: 4px;
+  background: var(--qm-art-active-background);
+  color: var(--qm-art-active-color);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-new-button:not(:disabled):hover {
+  border-color: var(--qm-art-active-color);
+  background: var(--qm-art-active-color);
+  color: #fff;
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-new-button:disabled {
+  border-color: color-mix(in srgb, var(--qm-art-active-color) 20%, var(--border));
+  background: color-mix(in srgb, var(--qm-art-active-background) 60%, var(--bg));
+  color: color-mix(in srgb, var(--qm-art-active-color) 45%, var(--text-dim));
+}
+
+/* 搜索展开属于业务侧栏的激活态：与其他按钮共用浅蓝，不保留默认深色顶线。 */
+.session-sidebar.is-ruoyi-embedded .sidebar-search-toggle.is-active {
+  border-top-color: transparent;
+  background: var(--qm-art-active-background);
+  color: var(--qm-art-active-color);
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-search-toggle.is-active svg {
+  color: var(--qm-art-active-color);
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-search-input {
+  border-color: color-mix(in srgb, var(--qm-art-active-color) 24%, var(--border));
+  background: color-mix(in srgb, var(--qm-art-active-background) 48%, var(--bg));
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-search-input:focus {
+  outline: 1px solid color-mix(in srgb, var(--qm-art-active-color) 55%, var(--border));
+  outline-offset: 0;
+  border-color: color-mix(in srgb, var(--qm-art-active-color) 55%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--qm-art-active-color) 12%, transparent);
+}
+
+/* 虚拟列表的行仍连续排布；仅缩短选中底色，留出稳定的视觉呼吸感。 */
+.session-sidebar.is-ruoyi-embedded .session-tree-session.is-selected {
+  background: var(--qm-art-active-background);
+  box-shadow: inset 0 -3px var(--bg);
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree-session.is-selected .session-tree-title {
+  font-weight: 600;
+}
+
+/* 业务会话采用旧版两行卡片：标题在上，时间和消息数在下；项目树和操作仍由原模型管理。 */
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session {
+  padding: 0 6px 4px;
+  border-radius: 8px;
+}
+
+/* 隐藏固定工作区标题后，首条业务会话仍与工具栏保持呼吸间距。 */
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-scroll {
+  padding-top: 8px;
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover {
+  background: var(--bg-hover);
+  box-shadow: inset 0 -4px var(--bg);
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: inset 0 -4px var(--bg);
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected:not(.is-confirming)::before {
+  display: none;
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-main {
+  align-items: stretch;
+  height: 56px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border-left: 0;
+  border-radius: 8px;
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover .session-tree-main {
+  background: transparent;
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected .session-tree-main {
+  background: transparent;
+}
+
+.session-tree.is-roomy .session-tree-card-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.session-tree.is-roomy .session-tree-card-content .session-tree-title {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.session-tree.is-roomy .session-tree-session.is-selected .session-tree-card-content .session-tree-title {
+  font-weight: 600;
+}
+
+.session-tree.is-roomy .session-tree-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.session-tree.is-roomy .session-tree-card-time {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.session-tree.is-roomy .session-tree-card-branch {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-files-section {
+  height: 34px;
+}
+
+.session-sidebar.is-ruoyi-embedded .sidebar-files-section-toggle {
+  font-size: 13px;
+}
+
+.session-sidebar.is-ruoyi-embedded .file-explorer-item {
+  height: 30px !important;
+  padding-right: 10px !important;
+}
+
+.session-sidebar.is-ruoyi-embedded .file-explorer-item-name {
+  font-size: 13px !important;
+}
+
 /* Touch screens wider than a phone have no hover: keep ⋯ reachable. */
 @media (hover: none) {
   .session-tree-more-action {

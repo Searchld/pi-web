@@ -739,7 +739,8 @@ test("the footer opens the project list in the files; fixed workspaces remove it
   assert.match(source, /onOpenArchive: openArchiveView,/);
   // The sessions tab, in the tabs layout (switchTab does nothing below the files).
   assert.match(callbackBody("openArchiveView"), /setArchiveView\(true\);[\s\S]*?setSessionSearchOpen\(false\);\s*switchTab\("sessions"\);/);
-  assert.match(source, /const sessionTreeRows = hideWorkspacePicker \? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open"\) : model\.rows;/);
+  assert.match(source, /const treeGroupExpansion = hideWorkspacePicker \? EMPTY_GROUP_EXPANSION : shownGroupExpansion;/);
+  assert.match(source, /const sessionTreeRows = hideWorkspacePicker\s*\? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open" && row\.kind !== "group" && row\.kind !== "group-empty"\)\s*: model\.rows;/);
   assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionTreeRows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
   assert.match(source, /<SessionTree \{\.\.\.treeProps\} rows=\{archiveRows\} emptyLabel=\{t\("sidebar\.noArchived"\)\} \/>/);
   assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
