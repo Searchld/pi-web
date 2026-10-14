@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import manifest, { dynamic } from "./manifest.ts";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
+const { default: manifest, dynamic } = await jiti.import("./manifest.ts");
 
 test("manifest reads the app name at runtime without changing other metadata", () => {
   const original = process.env.PI_WEB_APP_NAME;
