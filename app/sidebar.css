@@ -915,32 +915,6 @@ a.session-tree-main {
   letter-spacing: 0;
 }
 
-/* 嵌入 RuoYi 时，“新建”沿用 Element Plus 的 primary plain 按钮，而不是工具栏分隔单元格。 */
-.session-sidebar.is-ruoyi-embedded .sidebar-new-button {
-  align-self: center;
-  height: 28px;
-  margin: 0 8px 0 0;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--qm-art-active-color) 42%, var(--border));
-  border-radius: 4px;
-  background: var(--qm-art-active-background);
-  color: var(--qm-art-active-color);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.session-sidebar.is-ruoyi-embedded .sidebar-new-button:not(:disabled):hover {
-  border-color: var(--qm-art-active-color);
-  background: var(--qm-art-active-color);
-  color: #fff;
-}
-
-.session-sidebar.is-ruoyi-embedded .sidebar-new-button:disabled {
-  border-color: color-mix(in srgb, var(--qm-art-active-color) 20%, var(--border));
-  background: color-mix(in srgb, var(--qm-art-active-background) 60%, var(--bg));
-  color: color-mix(in srgb, var(--qm-art-active-color) 45%, var(--text-dim));
-}
-
 /* 搜索展开属于业务侧栏的激活态：与其他按钮共用浅蓝，不保留默认深色顶线。 */
 .session-sidebar.is-ruoyi-embedded .sidebar-search-toggle.is-active {
   border-top-color: transparent;

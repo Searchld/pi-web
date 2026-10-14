@@ -110,7 +110,7 @@ location ^~ /xi-web/ {
 - RuoYi 受控工作区校验期间只展示“正在验证当前账号…”，不展示普通 Pi Web 的“正在打开工作区”文案或内部工作区路径；普通 Pi Web 仍保留原有诊断信息。
 - RuoYi 的 `qimiao-web-launcher` 是 Pi Web iframe 的窗口宿主。嵌入态下，左侧 `Web Agent` 工具栏、中间聊天工具栏和数字人顶部的任意位置都作为窗口标题栏：移动超过 4px 才会进入拖动并通过受 `NEXT_PUBLIC_RUOYI_EMBED_ORIGIN` 限制的 `postMessage` 让宿主移动弹窗，因此工具栏按钮的普通单击保持自身功能；双击会切换宿主弹窗全屏。双击在 iframe 文档的原生捕获阶段监听，并以双击坐标重新命中顶栏：拖动的 pointer capture 会重定向 `event.target`，不能据此判断双击位置。Pi Web 会从已校验的认证消息记住父页实际来源（首次可使用同样经过白名单验证的 referrer），后续只向该来源发送消息；即使本地白名单同时含 `localhost` 与 `127.0.0.1`，也不会向错误来源额外发送。窗口控制以“存在受信任父窗口”为准，不依赖 `?embedded=1`；该参数只负责 iframe 令牌握手。单击工具栏按钮仍保留本身功能。不要在 Pi Web 内伪造“内容区全屏”，也不要放宽为向任意来源发送窗口控制消息。
 - RuoYi 嵌入态的侧栏品牌显示为 `Web Agent`；普通 Pi Web 仍显示 `Pi Web`，并保留版本彩蛋。
-- RuoYi 嵌入态的“新建”使用 Element Plus 风格的 primary plain 按钮：`#409eff` 主色文字与描边、`#ecf5ff` 浅蓝底，悬停后变为蓝底白字；普通 Pi Web 继续使用原来的工具栏分隔单元格样式。
+- RuoYi 嵌入态的“新建”复用 Pi Web 原有工具栏分隔单元格样式，不使用独立的蓝色描边按钮；新建会话的功能与权限逻辑不变。
 - `components/ChatWindow.tsx` 的 `businessMode` 只在 RuoYi 嵌入态启用。空会话展示 `BusinessIdleDemo` 和三条业务快捷提问；欢迎区不显示 Logo。普通 Pi Web 仍保留原有 Pi Web 标题、版本信息和工作区选择。
 - `components/BusinessIdleDemo.tsx` 是纯前端动画，不读取或请求任何业务数据。快捷提问通过 `ChatInputHandle.replaceText()` 写入并聚焦输入框。
 - 中文、英文和繁体中文文案必须同时维护在 `lib/i18n/messages/{zh-CN,en,zh-TW}.ts`，键名以 `chat.business` 开头。
