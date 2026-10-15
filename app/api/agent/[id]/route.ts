@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
-import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
+import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, sameRuoyiSkillNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 
@@ -53,14 +53,17 @@ export async function POST(
     if (existing?.isAlive()) {
       let session = existing;
       if (access) {
+        const codingToolsChanged = !sameRuoyiCodingToolNames(existing.getActiveCodingToolNames(), ruoyiPolicy!.toolNames);
+        const skillsChanged = !sameRuoyiSkillNames(existing.getRuoyiLoadedSkillNames(), ruoyiPolicy!.skillNames);
         existing.setRuoyiAuthorization(access.identity.authorization);
         existing.setRuoyiPolicy(ruoyiPolicy!);
         existing.setRuoyiSystemPrompt(ruoyiSystemPrompt!);
-        if (!sameRuoyiCodingToolNames(existing.getActiveCodingToolNames(), ruoyiPolicy!.toolNames)) {
+        if (codingToolsChanged || skillsChanged) {
           const tightened = await setRpcSessionTools(id, existing.sessionFile || undefined, ruoyiPolicy!.toolNames, {
             ruoyiAuthorization: access.identity.authorization,
             ruoyiPolicy,
             forceToolNames: true,
+            ...(skillsChanged ? { recreateForResources: true } : {}),
           });
           session = tightened.session;
         }

@@ -4,10 +4,13 @@ import type { RuoyiIdentity } from "./ruoyi-identity";
 export const RUOYI_CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 export const RUOYI_SUBAGENT_TOOL_NAMES = ["Agent", "get_subagent_result", "steer_subagent"] as const;
 export const RUOYI_SETTINGS_SECTION_NAMES = ["general", "models", "skills", "agents", "plugins", "mcp"] as const;
+/** 企业会话只允许 RuoYi 明确授权的已审核技能，不能由远端任意命名开启本机文件。 */
+export const RUOYI_SKILL_NAMES = ["agent-browser", "figma", "find-skills", "frontend-design", "reverse-engineer-anything"] as const;
 
 const codingToolNameSet = new Set<string>(RUOYI_CODING_TOOL_NAMES);
 const subagentToolNameSet = new Set<string>(RUOYI_SUBAGENT_TOOL_NAMES);
 const settingsSectionNameSet = new Set<string>(RUOYI_SETTINGS_SECTION_NAMES);
+const skillNameSet = new Set<string>(RUOYI_SKILL_NAMES);
 const POLICY_TIMEOUT_MS = 5_000;
 
 export type RuoyiAgentPolicy = {
@@ -16,6 +19,7 @@ export type RuoyiAgentPolicy = {
   businessToolsEnabled: boolean;
   subagentToolNames: string[];
   settingsSections: string[];
+  skillNames: string[];
 };
 
 export class RuoyiToolAuthorizationError extends Error {}
@@ -48,6 +52,7 @@ export function normalizeRuoyiAgentPolicy(payload: unknown): RuoyiAgentPolicy {
     businessToolsEnabled: record.businessToolsEnabled === true,
     subagentToolNames: stringNames(record.subagentToolNames, subagentToolNameSet),
     settingsSections: stringNames(record.settingsSections, settingsSectionNameSet),
+    skillNames: stringNames(record.skillNames, skillNameSet),
   };
 }
 
@@ -72,4 +77,8 @@ export async function loadRuoyiAgentPolicy(identity: RuoyiIdentity): Promise<Ruo
 
 export function sameRuoyiCodingToolNames(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((name) => right.includes(name));
+}
+
+export function sameRuoyiSkillNames(left: readonly string[] | undefined, right: readonly string[]): boolean {
+  return left !== undefined && left.length === right.length && left.every((name) => right.includes(name));
 }

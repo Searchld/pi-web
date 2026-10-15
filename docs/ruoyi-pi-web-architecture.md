@@ -99,11 +99,13 @@ flowchart TD
   E --> G[业务工具总开关]
   E --> H[子代理工具白名单]
   E --> I[设置页分区白名单]
-  F --> J[创建/恢复 Agent 会话]
-  G --> J
-  H --> J
+  E --> J[技能白名单]
+  F --> K[创建/恢复 Agent 会话]
+  G --> K
+  H --> K
+  J --> K
   I --> K[允许访问对应设置 API]
-  J --> L[服务端再次过滤活动工具]
+  K --> L[服务端再次过滤活动工具与技能]
 ```
 
 RuoYi 后端的 `/agent/v1/tool-policy` 根据当前用户的权限标识计算策略。Pi Web 不接受该接口之外的任意工具名：即使远端错误地返回了陌生工具名称，也会被 Pi Web 的固定白名单丢弃。
@@ -126,6 +128,11 @@ RuoYi 后端的 `/agent/v1/tool-policy` 根据当前用户的权限标识计算�
 | `agent:subagent:result` | `get_subagent_result` | 读取子代理结果 |
 | `agent:subagent:steer` | `steer_subagent` | 向子代理继续下达指令 |
 | `agent:business:use` | `businessToolsEnabled` | 允许加载“当前用户”可用的 RuoYi 业务查询工具目录 |
+| `agent:skill:agent-browser` | `skillNames` 中的 `agent-browser` | 允许加载浏览器自动化技能 |
+| `agent:skill:figma` | `skillNames` 中的 `figma` | 允许加载 Figma 设计技能 |
+| `agent:skill:find-skills` | `skillNames` 中的 `find-skills` | 允许加载技能发现技能 |
+| `agent:skill:frontend-design` | `skillNames` 中的 `frontend-design` | 允许加载前端设计技能 |
+| `agent:skill:reverse-engineer-anything` | `skillNames` 中的 `reverse-engineer-anything` | 允许加载逆向分析技能 |
 | `agent:settings:general` | `general` | 常规设置，包括业务提示词开关/内容 |
 | `agent:settings:models` | `models` | 模型、供应商和模型凭据相关设置 |
 | `agent:settings:skills` | `skills` | Skills 设置 |
@@ -140,7 +147,7 @@ RuoYi 后端的 `/agent/v1/tool-policy` 根据当前用户的权限标识计算�
 在普通 Pi Web 中，用户可在界面选择工具。RuoYi 受控模式中，浏览器提交的工具清单不作为授权依据：
 
 - 新建会话时，Pi Web 服务端以 RuoYi 的 `toolNames` 覆盖浏览器提交值；
-- 恢复或继续会话时，服务端再次加载策略；若已运行会话中的编码工具与当前策略不一致，重新收紧为当前策略；
+- 恢复或继续会话时，服务端再次加载策略；若已运行会话中的编码工具或实际载入的技能与当前策略不一致，会在会话空闲时以当前策略重建；
 - 浏览器尝试 `set_tools` 会被拒绝，提示“Agent 工具由系统权限统一管理”；
 - 会话历史中曾保存的旧工具选择也不能反向恢复已撤销的权限。
 
@@ -161,12 +168,12 @@ RuoYi 后端的 `/agent/v1/tool-policy` 根据当前用户的权限标识计算�
 为避免工作站上已有的本地定制悄悄影响企业会话，RuoYi 受控会话会关闭：
 
 - 本地/项目 `AGENTS.md` 等上下文文件；
-- 本地 Skills；
+- 未被 RuoYi `skillNames` 明确授权的本地 Skills；
 - 提示词模板和主题；
 - 用户安装的扩展；
 - 内置 MCP、Code mode、tool-search。
 
-这意味着 RuoYi 受控会话的能力来源应当清晰可追溯：RuoYi 授权的 Pi 内置工具、RuoYi 返回的业务工具，以及当前用户可用的子代理工具。它并不等于“把本机 Pi Web 所有扩展套进 iframe”。
+这意味着 RuoYi 受控会话的能力来源应当清晰可追溯：RuoYi 授权的 Pi 内置工具、已审核且按 `agent:skill:*` 授权的本地技能、RuoYi 返回的业务工具，以及当前用户可用的子代理工具。技能内容文件仅可由已授权技能的 `SKILL.md` 读取，不能借文件读取工具访问工作区外的任意路径；它并不等于“把本机 Pi Web 所有扩展套进 iframe”。
 
 ## 6. 一次聊天请求的完整流程
 
@@ -258,6 +265,7 @@ flowchart LR
 | MCP | 运行时关闭 | RuoYi 受控工具范围之外，不应通过 MCP 旁路扩权 |
 | Code mode | 运行时关闭 | 不让脚本编排绕过受控工具范围 |
 | tool-search | 运行时关闭 | 不让模型动态发现未授权工具 |
+| 未经 `agent:skill:*` 授权的本地 Skills | 不加载 | 不能由设置页开关或本机安装绕过角色权限 |
 | 浏览器自由切换工具 | 服务端拒绝 | 当前工具集必须以 RuoYi 实时策略为准 |
 
 设置页能否打开 MCP、插件等“设置分区”，与当前 RuoYi 受控 Agent 会话是否加载该能力是两件事。设置权限只控制相应设置 API 的访问；受控会话的运行时禁用规则仍然生效。

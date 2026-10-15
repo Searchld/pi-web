@@ -146,6 +146,8 @@ type AgentSessionWrapperOptions = {
   ruoyiAuthorizationRef?: { current?: string };
   /** RuoYi 当前用户的工具策略，仅保留在进程内。 */
   ruoyiPolicyRef?: { current: RuoyiAgentPolicy };
+  /** 本次会话实际载入的 RuoYi 技能名；策略刷新时用于判断是否必须重建资源。 */
+  ruoyiLoadedSkillNames?: readonly string[];
   /** RuoYi 当前用户的提示词偏好；null 表示使用 Pi Web 默认提示词。 */
   ruoyiSystemPromptRef?: { current: string | null };
   /** RuoYi 业务目录的中文名称。SDK 的 ToolInfo 不保证保留 label，故由包装层保存。 */
@@ -357,6 +359,7 @@ export class AgentSessionWrapper {
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private readonly ruoyiAuthorizationRef?: { current?: string };
   private readonly ruoyiPolicyRef?: { current: RuoyiAgentPolicy };
+  private readonly ruoyiLoadedSkillNames?: readonly string[];
   private readonly ruoyiSystemPromptRef?: { current: string | null };
   private readonly ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
   private mcpHostDisposed = false;
@@ -389,6 +392,7 @@ export class AgentSessionWrapper {
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
     this.ruoyiAuthorizationRef = options.ruoyiAuthorizationRef;
     this.ruoyiPolicyRef = options.ruoyiPolicyRef;
+    this.ruoyiLoadedSkillNames = options.ruoyiLoadedSkillNames;
     this.ruoyiSystemPromptRef = options.ruoyiSystemPromptRef;
     this.ruoyiBusinessToolLabels = options.ruoyiBusinessToolLabels;
   }
@@ -424,6 +428,10 @@ export class AgentSessionWrapper {
 
   getRuoyiCodingToolNames(): readonly string[] | undefined {
     return this.ruoyiPolicyRef?.current.toolNames;
+  }
+
+  getRuoyiLoadedSkillNames(): readonly string[] | undefined {
+    return this.ruoyiLoadedSkillNames;
   }
 
   getRuoyiAuthorization(): string | undefined {
@@ -2307,7 +2315,7 @@ export async function setRpcSessionTools(
   sessionId: string,
   sessionFile: string | undefined,
   requestedToolNames: unknown,
-  options: Pick<RpcSessionStartOptions, "forceToolNames" | "ruoyiAuthorization" | "ruoyiPolicy"> = {},
+  options: Pick<RpcSessionStartOptions, "forceToolNames" | "ruoyiAuthorization" | "ruoyiPolicy"> & { recreateForResources?: boolean } = {},
 ): Promise<SetRpcSessionToolsResult> {
   const toolNames = requestedToolNames === undefined
     ? undefined
@@ -2349,7 +2357,7 @@ export async function setRpcSessionTools(
   else appendSessionToolSelection(existing.inner.sessionManager, toolNames);
   invalidateSessionListCache();
 
-  if (toolNames !== undefined && !crossesChatOnlyBoundary) {
+  if (toolNames !== undefined && !crossesChatOnlyBoundary && !options.recreateForResources) {
     existing.setActiveToolSelection(toolNames);
     if (options.ruoyiAuthorization !== undefined) existing.setRuoyiAuthorization(options.ruoyiAuthorization);
     if (options.ruoyiPolicy !== undefined) existing.setRuoyiPolicy(options.ruoyiPolicy);
@@ -2601,6 +2609,7 @@ export async function startRpcSession(
     ruoyiPolicyRef?.current.businessToolsEnabled || ruoyiPolicyRef?.current.subagentToolNames.length,
   );
   const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources && !ruoyiExtensionsEnabled;
+  const ruoyiSkillFiles = new Set<string>();
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -2698,16 +2707,24 @@ export async function startRpcSession(
         : controlledRuoyiSession
           ? {
               // 企业会话只装载本文件显式传入的受控扩展；用户、项目与全局资源
-              // 即使已在设置页配置，也不能把 MCP 或第三方工具带入本次运行。
+              // 即使已在设置页配置，也不能把 MCP、第三方工具或未授权技能带入本次运行。
               noExtensions: true,
-              noSkills: true,
+              noSkills: false,
               noPromptTemplates: true,
               noThemes: true,
               noContextFiles: true,
+              skillsOverride: ({ skills, diagnostics }) => {
+                const allowed = new Set(ruoyiPolicyRef?.current.skillNames ?? []);
+                const authorized = skills.filter((skill) => allowed.has(skill.name));
+                for (const skill of authorized) {
+                  try { ruoyiSkillFiles.add(realpathSync(skill.filePath)); } catch { /* 文件在加载期间被移除 */ }
+                }
+                return { skills: authorized, diagnostics };
+              },
               disabledBuiltinExtensions: ["mcp", "codemode", "tool-search"],
               extensionFactories: [
                 exactSystemPromptExtension,
-                createRuoyiWorkspaceToolGuard(sessionCwd),
+                createRuoyiWorkspaceToolGuard(sessionCwd, ruoyiSkillFiles),
                 ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
                   () => ruoyiAuthorizationRef.current,
                   (tools) => {
@@ -2889,6 +2906,7 @@ export async function startRpcSession(
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
       ...(ruoyiAuthorizationRef ? { ruoyiAuthorizationRef } : {}),
       ...(ruoyiPolicyRef ? { ruoyiPolicyRef } : {}),
+      ...(controlledRuoyiSession ? { ruoyiLoadedSkillNames: [...(ruoyiPolicyRef?.current.skillNames ?? [])] } : {}),
       ...(ruoyiSystemPromptRef ? { ruoyiSystemPromptRef } : {}),
       ...(ruoyiBusinessToolLabels ? { ruoyiBusinessToolLabels } : {}),
     });

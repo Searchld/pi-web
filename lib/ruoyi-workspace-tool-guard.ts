@@ -1,4 +1,4 @@
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import { isExistingFilePathAllowed, isFilePathAllowed } from "./file-access";
@@ -33,12 +33,27 @@ function isWritablePathWithinWorkspace(target: string, roots: Set<string>): bool
   return isExistingFilePathAllowed(existing, roots);
 }
 
-function isToolPathAllowed(toolName: string, input: Record<string, unknown>, workspace: string): boolean {
+function isAuthorizedSkillFile(target: string, allowedSkillFiles: ReadonlySet<string>): boolean {
+  try {
+    return lstatSync(target).isFile() && allowedSkillFiles.has(realpathSync(target));
+  } catch {
+    return false;
+  }
+}
+
+function isToolPathAllowed(
+  toolName: string,
+  input: Record<string, unknown>,
+  workspace: string,
+  allowedSkillFiles: ReadonlySet<string>,
+): boolean {
   const rawPath = input.path;
   // grep/find/ls 的 path 可省略，省略时其实现使用会话 cwd。
   if (rawPath !== undefined && typeof rawPath !== "string") return false;
   if (typeof rawPath === "string" && hasParentDirectorySegment(rawPath)) return false;
   const resolved = path.resolve(workspace, rawPath || ".");
+  // 仅允许模型读取当前角色已经授权、且加载器实际接受的 SKILL.md。
+  if (toolName === "read" && isAuthorizedSkillFile(resolved, allowedSkillFiles)) return true;
   const roots = new Set([workspace]);
   return toolName === "write"
     ? isWritablePathWithinWorkspace(resolved, roots)
@@ -52,7 +67,10 @@ function isToolPathAllowed(toolName: string, input: Record<string, unknown>, wor
  * bash 无法可靠解析任意 shell 语法；其宿主机风险由部署权限模型承担，只保证
  * Pi 以工作区作为 cwd 启动 bash。
  */
-export function createRuoyiWorkspaceToolGuard(workspace: string): InlineExtension {
+export function createRuoyiWorkspaceToolGuard(
+  workspace: string,
+  allowedSkillFiles: ReadonlySet<string> = new Set(),
+): InlineExtension {
   return {
     name: "pi-web-ruoyi-workspace-tool-guard",
     hidden: true,
@@ -60,8 +78,8 @@ export function createRuoyiWorkspaceToolGuard(workspace: string): InlineExtensio
       pi.on("tool_call", (event) => {
         const toolName = event.toolName;
         if (!PATH_TOOLS.has(toolName)) return undefined;
-        if (isToolPathAllowed(toolName, toolInput(event), workspace)) return undefined;
-        return { block: true, reason: "RuoYi 模式下只能访问当前用户工作区内的文件。" };
+        if (isToolPathAllowed(toolName, toolInput(event), workspace, allowedSkillFiles)) return undefined;
+        return { block: true, reason: "RuoYi 模式下只能访问当前用户工作区或已授权技能的 SKILL.md。" };
       });
     },
   };

@@ -9,4 +9,6 @@ test("RuoYi 会话在每次请求读取策略，并拒绝 Pi Web 改写工具集
   assert.match(source, /if \(access\) throw new RuoyiToolAuthorizationError\("Agent 工具由系统权限统一管理"\)/);
   assert.match(source, /existing\.setRuoyiPolicy\(ruoyiPolicy!\)/);
   assert.match(source, /sameRuoyiCodingToolNames\(existing\.getActiveCodingToolNames\(\), ruoyiPolicy!\.toolNames\)/);
+  assert.match(source, /sameRuoyiSkillNames\(existing\.getRuoyiLoadedSkillNames\(\), ruoyiPolicy!\.skillNames\)/);
+  assert.match(source, /skillsChanged \? \{ recreateForResources: true \} : \{\}/);
 });

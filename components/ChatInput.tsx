@@ -1127,6 +1127,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
+
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
   // Warn when images are attached but the selected model is known not to accept
@@ -1937,9 +1938,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               style={{
                 position: "absolute",
                 left: 0,
-                right: 0,
                 bottom: "calc(100% + 8px)",
                 zIndex: 120,
+                width: "100%",
+                maxWidth: 680,
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
                 borderRadius: 8,
@@ -2036,8 +2038,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 display: "flex",
                 flexDirection: "column",
                 maxHeight: slashMenuMaxHeight === null
-                  ? "min(72.8vh, 598px)"
-                  : `min(72.8vh, 598px, ${slashMenuMaxHeight}px)`,
+                  ? "min(50vh, 360px)"
+                  : `min(50vh, 360px, ${slashMenuMaxHeight}px)`,
               }}
             >
               <div
@@ -2056,24 +2058,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                  <span>{slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { label: slashCommandCountLabel })}</span>
                  <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
               </div>
-              <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: 10 }}>
+              <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: 6 }}>
                 {!slashCommandsLoading && filteredSlashCommands.length === 0 ? (
                   <div style={{ padding: "2px 2px 4px", fontSize: 12, color: "var(--text-dim)" }}>
                      {t("chat.noCommands")}
                   </div>
                 ) : (
                   groupedSlashCommands.map((group) => (
-                    <section key={group.source} style={{ marginBottom: 12 }}>
+                    <section key={group.source} style={{ marginBottom: 8 }}>
                       <div
                         style={{
                           position: "sticky",
-                          top: -10,
+                          top: -6,
                           zIndex: 1,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
                           gap: 8,
-                          padding: "4px 0 6px",
+                          padding: "4px 4px",
                           background: "var(--bg)",
                           color: "var(--text-dim)",
                           fontSize: 10,
@@ -2086,9 +2088,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       </div>
                       <div
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                          gap: 8,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 2,
                         }}
                       >
                         {group.items.map(({ command, index }) => {
@@ -2109,26 +2111,30 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                               style={{
                                 width: "100%",
                                 minWidth: 0,
-                                minHeight: 58,
+                                minHeight: 40,
                                 display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
+                                alignItems: "baseline",
+                                gap: 10,
                                 justifyContent: "center",
-                                padding: "9px 10px",
-                                border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                                borderRadius: 7,
-                                background: active ? "var(--bg-selected)" : "var(--bg-panel)",
+                                padding: "7px 8px",
+                                border: active ? "1px solid var(--accent)" : "1px solid transparent",
+                                borderRadius: 6,
+                                background: active ? "var(--bg-selected)" : "transparent",
                                 color: "var(--text)",
                                 cursor: "pointer",
                                 textAlign: "left",
-                                boxShadow: active ? "0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent)" : "none",
+                                boxShadow: "none",
                               }}
                             >
                               <span style={{
-                                fontSize: 13,
+                                flex: "0 1 238px",
+                                minWidth: 0,
+                                maxWidth: "48%",
+                                fontSize: 12.5,
                                 fontFamily: "var(--font-mono)",
-                                overflowWrap: "anywhere",
-                                wordBreak: "break-word",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
                                 color: dormant ? "var(--text-dim)" : undefined,
                               }}>
                                 /{command.name}
@@ -2148,12 +2154,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                               </span>
                                {command.description && (
                                 <span style={{
+                                  flex: "1 1 0",
+                                  minWidth: 0,
                                   display: "-webkit-box",
                                   WebkitBoxOrient: "vertical",
-                                  WebkitLineClamp: 2,
+                                  WebkitLineClamp: 1,
                                   overflow: "hidden",
-                                  fontSize: 11,
-                                  lineHeight: 1.35,
+                                  fontSize: 11.5,
+                                  lineHeight: 1.3,
                                   color: "var(--text-dim)",
                                 }}>
                                    {getSlashDescription(command, t)}

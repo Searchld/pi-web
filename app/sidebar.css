@@ -1317,6 +1317,20 @@ a.session-tree-main {
   height: 29px;
 }
 
+/* RuoYi 嵌入态把文件标题行加高到 34px，折叠容器也须包含该行和上边框，
+   否则悬停底色会被 sidebar-panel 的 overflow 裁掉。 */
+.session-sidebar.is-ruoyi-embedded.is-files-below .sidebar-files-panel {
+  min-height: 35px;
+}
+
+.session-sidebar.is-ruoyi-embedded.is-files-below.is-files-collapsed .sidebar-files-panel {
+  height: 35px;
+}
+
+.session-sidebar.is-ruoyi-embedded.is-files-below.is-files-collapsed .sidebar-toast-region {
+  bottom: 43px;
+}
+
 /* A fold or an unfold (only those: .is-files-folding is on the root while
    one runs, never for a drag, keys, a window resize or a layout switch)
    moves the files' height between the separator's and the header row's,

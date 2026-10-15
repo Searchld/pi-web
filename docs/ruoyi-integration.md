@@ -18,6 +18,8 @@ RuoYi 嵌入态仍使用 Pi Web 常规设置中的界面/等宽字体、聊天�
 
 在“角色管理 → 工作台”按工具单独授予权限：`agent:tool:read`、`grep`、`find`、`ls`、`edit`、`write`、`bash`，以及业务工具 `agent:business:use`、子 Agent 的启动/结果/引导三项权限。未获得任何 Agent 工具权限的用户仅能聊天。
 
+Skills 也使用同一套角色授权：`agent:skill:agent-browser`、`agent:skill:figma`、`agent:skill:find-skills`、`agent:skill:frontend-design`、`agent:skill:reverse-engineer-anything` 分别控制对应技能是否载入当前会话和是否出现在 `/skill:<名称>` 的斜杠命令中。`agent:settings:skills` 只允许管理技能设置，不会自动授予任何技能的运行权限；未授权、未知或后来安装的技能不会进入 RuoYi 受控会话。
+
 Pi Web 设置按页面分别使用 `agent:settings:general`、`agent:settings:models`、`agent:settings:skills`、`agent:settings:subagents`、`agent:settings:plugins`、`agent:settings:mcp`。没有对应权限时页签不会显示，且服务端会拒绝该页面的设置 API；`agent:settings:subagents` 只控制子代理配置的新增、编辑、启停，不替代运行时的子 Agent 工具权限。
 
 Pi Web 每次创建、恢复会话、连接 SSE 和提交消息都会重新取得当前用户的工具白名单并在服务端强制应用；前端隐藏或勾选状态不是安全边界。Web 终端与 `bash` 都是任意命令执行能力：只有 `agent:tool:bash` 才显示终端入口，终端的创建、重连、输入、调整大小、关闭和事件流接口也都会再次校验该权限。不要把它授予不可信角色，也不要以“命令黑名单拦截删除”替代角色授权。
