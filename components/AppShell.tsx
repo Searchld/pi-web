@@ -2974,6 +2974,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       <SettingsPanel
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
+        isRuoyiIntegration={isRuoyiIntegration}
         initialSection={settingsSection}
         allowedSections={allowedSettingsSections}
         quoteSelectionEnabled={quoteSelectionEnabled}
