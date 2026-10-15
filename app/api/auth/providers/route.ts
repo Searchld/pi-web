@@ -1,6 +1,6 @@
 import { buildApiKeyProviderList, buildOAuthProviderList } from "@/lib/provider-listing";
 import { collectProviderListingInputs } from "@/lib/provider-listing-runtime";
-import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
+import { getModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
-  const modelRuntime = await createModelRuntimeWithExtensions();
+  const modelRuntime = await getModelRuntimeWithExtensions();
   const inputs = await collectProviderListingInputs(modelRuntime);
   const oauthProviders = buildOAuthProviderList(inputs);
   const apiKeyProviders = buildApiKeyProviderList(inputs);

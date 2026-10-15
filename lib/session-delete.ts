@@ -55,7 +55,7 @@ function addChild(childrenByParent: Map<string, string[]>, parentId: string, chi
  */
 export async function deleteSessions(
   ids: readonly string[],
-  options: { keepRunning?: boolean } = {},
+  options: { keepRunning?: boolean; sessionUiStatePath?: string } = {},
 ): Promise<SessionDeleteResult> {
   const targets = new Map<string, string>();
   const missing: string[] = [];
@@ -240,7 +240,7 @@ export async function deleteSessions(
   }
   // Drop their pins and archive times; best effort, the files are already gone.
   try {
-    await forgetSessionUiState(deletedSessionIds);
+    await forgetSessionUiState(deletedSessionIds, options.sessionUiStatePath);
   } catch (error) {
     console.warn(`[pi-web] could not clear the sidebar state of deleted sessions: ${error instanceof Error ? error.message : String(error)}`);
   }

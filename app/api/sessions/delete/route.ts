@@ -3,6 +3,7 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 import { deleteSessions, MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
+import { ruoyiSessionUiStatePath } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +34,15 @@ export async function POST(req: Request) {
   if (ids.length > MAX_SESSION_DELETE_IDS) return refusal(400, `ids may hold at most ${MAX_SESSION_DELETE_IDS} session ids`);
   if (!ids.every((id) => typeof id === "string" && SESSION_ID_PATTERN.test(id))) return refusal(400, "ids must be session ids");
 
+  let sessionUiStatePath: string | undefined;
   for (const id of ids) {
     const access = await requireIntegrationSessionAccess(req, id);
     if (access && isRuoyiAccessDenied(access)) return access;
+    if (access) sessionUiStatePath ??= ruoyiSessionUiStatePath(access.identity.userId);
   }
 
   try {
-    const result = await deleteSessions(ids as string[], { keepRunning: true });
+    const result = await deleteSessions(ids as string[], { keepRunning: true, sessionUiStatePath });
     return NextResponse.json(result satisfies SessionDeleteResult, { headers: NO_STORE });
   } catch (error) {
     return refusal(500, error instanceof Error ? error.message : String(error));

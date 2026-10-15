@@ -1,6 +1,6 @@
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
-import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
+import { getModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export async function POST(
   const denied = await requireRuoyiSettingsAccess(req, "models");
   if (denied) return denied;
   const { provider } = await params;
-  const modelRuntime = await createModelRuntimeWithExtensions();
+  const modelRuntime = await getModelRuntimeWithExtensions();
   if (!modelRuntime.getProvider(provider)?.auth.oauth) {
     return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
   }

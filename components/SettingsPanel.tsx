@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 import { THEME_OPTIONS } from "@/lib/theme";
-import { ThemeIcon } from "./ThemeIcon";
 import {
   CHAT_CONTENT_WIDTH_DEFAULT,
   CHAT_CONTENT_WIDTH_MAX,
@@ -28,6 +27,7 @@ import {
   isThinkingExpandedByDefault,
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
+import { setupPushSubscription } from "@/lib/push-client";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
@@ -86,6 +86,11 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
+  const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
+  const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
+  const [pushRegistering, setPushRegistering] = useState(false);
+  const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
@@ -148,6 +153,41 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/cache-miss-notices")
+      .then(async (response) => {
+        const data = await response.json() as { enabled?: boolean; error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) setCacheMissNotices(data.enabled === true);
+      })
+      .catch((cause) => {
+        if (!cancelled) setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // pi's showCacheMissNotices (#1265); the open chat is read again to show or drop them.
+  const toggleCacheMissNotices = async (enabled: boolean) => {
+    setCacheMissNoticesSaving(true);
+    setCacheMissNoticesError(null);
+    try {
+      const response = await fetch("/api/cache-miss-notices", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await response.json() as { enabled?: boolean; error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setCacheMissNotices(data.enabled === true);
+      if (sessionId) onSessionReloaded();
+    } catch (cause) {
+      setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCacheMissNoticesSaving(false);
+    }
+  };
+
   const togglePowerShell = async (enabled: boolean) => {
     setShellSaving(true);
     setShellError(null);
@@ -168,6 +208,28 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       setShellError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setShellSaving(false);
+    }
+  };
+
+  const registerPush = async () => {
+    if (pushRegistering) return;
+    setPushRegistering(true);
+    setPushStatus(null);
+    try {
+      if (typeof window === "undefined" || !("Notification" in window)) {
+        throw new Error("unsupported or not permitted");
+      }
+      const permission = Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+      if (permission !== "granted") throw new Error("unsupported or not permitted");
+      const ok = await setupPushSubscription(locale);
+      if (!ok) throw new Error("unsupported or not permitted");
+      setPushStatus({ kind: "ok", message: t("settings.pushRegistered") });
+    } catch (cause) {
+      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${cause instanceof Error ? cause.message : String(cause)}` });
+    } finally {
+      setPushRegistering(false);
     }
   };
 
@@ -204,6 +266,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               <label
                 key={option.id}
                 className="settings-theme-option"
+                data-system={option.id === "auto" || undefined}
+                data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || undefined}
               >
                 <input
                   type="radio"
@@ -213,8 +277,22 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                   onChange={() => setThemePreference(option.id)}
                   className="sr-only"
                 />
-                <ThemeIcon preference={option.id} />
-                <span className="settings-theme-option-label">{t(option.label)}</span>
+                {/* A data-theme span paints with that theme's own variables. System is a switch, not a
+                    palette: a neutral tile with a light and a dark chip beside its name. */}
+                {option.id === "auto" ? (
+                  <span className="settings-theme-swatch settings-theme-system" aria-hidden="true">
+                    <span data-theme="light" className="settings-theme-chip" />
+                    <span data-theme="dark" className="settings-theme-chip" />
+                    <span className="settings-theme-system-name">{t(option.label)}</span>
+                  </span>
+                ) : (
+                  <span className="settings-theme-swatch" aria-hidden="true">
+                    <span data-theme={option.id} className="settings-theme-fill">
+                      <span className="settings-theme-name">{t(option.label)}</span>
+                    </span>
+                  </span>
+                )}
+                <span className="sr-only">{t(option.label)}</span>
               </label>
             );
           })}
@@ -334,7 +412,19 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               </label>
             </div>
           </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.cacheMissNotices")}</span>
+            <ConfigSwitch
+              checked={cacheMissNotices === true}
+              loading={(cacheMissNotices === null && !cacheMissNoticesError) || cacheMissNoticesSaving}
+              label={t("settings.cacheMissNotices")}
+              describedBy="settings-cache-miss-notices-description"
+              onChange={(enabled) => void toggleCacheMissNotices(enabled)}
+            />
+          </div>
         </div>
+        <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
+        {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
       </section>
 
       {ruoyiPrompt && (
@@ -431,6 +521,31 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.pushPermission")}</h3>
+        <p className="settings-general-description">{t("settings.pushPermissionDescription")}</p>
+        <div className="settings-shell-option">
+          <span>{t("settings.pushPermission")}</span>
+          <button
+            type="button"
+            className="config-button config-button-small config-button-secondary"
+            disabled={pushRegistering}
+            onClick={() => void registerPush()}
+          >
+            {pushRegistering ? t("settings.pushRegisterLoading") : t("settings.pushRegister")}
+          </button>
+        </div>
+        {pushStatus && (
+          <p
+            role="status"
+            className="settings-general-error"
+            style={pushStatus.kind === "ok" ? { color: "var(--accent)" } : undefined}
+          >
+            {pushStatus.message}
+          </p>
+        )}
+      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
