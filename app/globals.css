@@ -187,6 +187,14 @@ html.dark .qm-art-shell,
   color: var(--qm-art-active-color) !important;
 }
 
+/* 面板展开时只保留图标和细底线，避免整块浅蓝按钮压过会话与工具入口。 */
+.qm-art-topbar button[aria-controls="file-panel"][aria-expanded="true"],
+.qm-art-topbar button[aria-controls="session-sidebar"][aria-pressed="true"] {
+  background: var(--bg) !important;
+  border-top-color: transparent !important;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--qm-art-active-color) 55%, transparent);
+}
+
 .qm-art-shell .file-panel-expand-button[aria-pressed="true"] {
   color: var(--qm-art-active-color);
   background: var(--qm-art-active-background);

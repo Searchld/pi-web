@@ -2345,6 +2345,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+            aria-controls="session-sidebar"
             aria-pressed={sidebarOpen}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -2495,6 +2496,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                   loading={systemInfoLoading}
                   tools={systemTools}
                   translate={translate}
+                  lightSurface={isRuoyiIntegration}
                 />
               )}
               {activeTopPanel === "session" && (

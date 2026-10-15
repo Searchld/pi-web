@@ -1053,7 +1053,9 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
   }, [expanded, block.deferred, content, sessionId, entryId, blockIndex]);
 
   return (
-    <div style={{
+    <div
+      data-thinking
+      style={{
       display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0,
       border: "1px solid var(--border)",
       borderRadius: 7,
@@ -1179,6 +1181,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
 
   return (
     <div
+      data-tool-call
       style={{
         borderRadius: 7,
         overflow: "hidden",

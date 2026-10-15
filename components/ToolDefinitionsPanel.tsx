@@ -10,6 +10,8 @@ interface Props {
   loading: boolean;
   tools: ToolEntry[] | null;
   translate: Translate;
+  /** RuoYi 嵌入态与业务工作区保持同一内容底色。 */
+  lightSurface?: boolean;
 }
 
 interface ParameterField {
@@ -96,7 +98,7 @@ function EmptyState({ children }: { children: string }) {
   return <div className="tool-definitions-empty">{children}</div>;
 }
 
-export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
+export function ToolDefinitionsPanel({ loading, tools, translate, lightSurface = false }: Props) {
   // What the model is sent: under codemode's "only" mode the active built-in tools are reached
   // from scripts, and codemode's description lists them.
   const declaredTools = useMemo(
@@ -226,7 +228,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
           height: min(600px, 75dvh);
           min-height: 240px;
           overflow: hidden;
-          background: var(--bg-panel);
+          background: ${lightSurface ? "var(--bg)" : "var(--bg-panel)"};
           border-bottom: 1px solid var(--border);
         }
         .tool-definitions-sidebar,
@@ -238,7 +240,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
         }
         .tool-definitions-sidebar {
           border-right: 1px solid var(--border);
-          background: color-mix(in srgb, var(--bg-panel) 94%, var(--bg));
+          background: ${lightSurface ? "var(--bg)" : "color-mix(in srgb, var(--bg-panel) 94%, var(--bg))"};
         }
         .tool-definitions-list,
         .tool-definition-scroll {

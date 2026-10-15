@@ -35,13 +35,14 @@
   margin-bottom: 20px !important;
 }
 
-/* AssistantMessageView 的第二个直接子节点是正文与工具块的既有容器。 */
+/* AssistantMessageView 的第二个直接子节点是正文与工具块的既有容器。
+ * 过程详情已经承担分组含义，回复再做一层卡片会造成层层嵌套。 */
 .qm-art-shell .qm-ruoyi-message-list [data-message-role="assistant"] > div:nth-child(2) {
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg) 96%, var(--accent));
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 5%, transparent);
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .qm-art-shell .qm-ruoyi-message-list [data-message-role="assistant"] > div:first-child {
@@ -51,11 +52,11 @@
 }
 
 .qm-art-shell .qm-ruoyi-process-details {
-  margin-bottom: 16px !important;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-panel) 54%, var(--bg));
+  margin-bottom: 18px !important;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .qm-art-shell .qm-ruoyi-process-details-toggle {
@@ -66,7 +67,23 @@
 }
 
 .qm-art-shell .qm-ruoyi-process-details-content {
-  margin-top: 7px !important;
-  padding-top: 7px;
+  margin-top: 6px !important;
+  padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+/* 工具调用连续出现时保持为状态行，而非一串绿色卡片。名称本身仍保留成功或失败颜色。 */
+.qm-art-shell .qm-ruoyi-process-details-content [data-tool-call] {
+  border: 0 !important;
+  border-left: 2px solid color-mix(in srgb, var(--border) 72%, transparent) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* 推理是过程文本，不再使用完整卡片；展开、耗时与延迟加载仍由原组件处理。 */
+.qm-art-shell .qm-ruoyi-message-list [data-thinking] {
+  padding: 4px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
 }
