@@ -390,7 +390,7 @@ test("renders the empty tool preset as Chat only", () => {
   assert.match(html, />Chat only<\/span>/);
 });
 
-test("renders the compact composer with the standard Send button and no session controls", () => {
+test("renders the compact composer with an icon-only Send button and no session controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,
@@ -405,7 +405,8 @@ test("renders the compact composer with the standard Send button and no session 
   );
 
   assert.match(html, /<textarea/);
-  assert.match(html, />Send<\/button>/);
+  assert.match(html, /title="Send" aria-label="Send"/);
+  assert.doesNotMatch(html, />Send<\/button>/);
   assert.equal((html.match(/<button\b/g) ?? []).length, 1);
   assert.doesNotMatch(html, /type="file"|Attach files|Change tool preset/);
 });

@@ -7,7 +7,9 @@ import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl }
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { FileExplorer } from "./FileExplorer";
 import { FileViewer } from "./FileViewer";
+import { FolderIcon } from "./SidebarIcons";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -370,10 +372,27 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [digitalHumanOpen, setDigitalHumanOpen] = useState(isRuoyiIntegration);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
+  const [rightFileSearchOpen, setRightFileSearchOpen] = useState(false);
+  const rightPanelWasOpenRef = useRef(false);
+  const digitalHumanHiddenByFilePanelRef = useRef(false);
   const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
   useEffect(() => {
     if (!rightPanelOpen || isMobile) setRightPanelExpanded(false);
   }, [rightPanelOpen, isMobile]);
+  useEffect(() => {
+    const justOpened = rightPanelOpen && !rightPanelWasOpenRef.current;
+    const justClosed = !rightPanelOpen && rightPanelWasOpenRef.current;
+    rightPanelWasOpenRef.current = rightPanelOpen;
+    if (!isRuoyiIntegration) return;
+    // 文件浏览器只恢复它自己自动隐藏的数字人，保留用户原本关闭的选择。
+    if (justOpened) {
+      digitalHumanHiddenByFilePanelRef.current = digitalHumanOpen;
+      if (digitalHumanOpen) setDigitalHumanOpen(false);
+    } else if (justClosed && digitalHumanHiddenByFilePanelRef.current) {
+      digitalHumanHiddenByFilePanelRef.current = false;
+      setDigitalHumanOpen(true);
+    }
+  }, [digitalHumanOpen, isRuoyiIntegration, rightPanelOpen]);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
@@ -461,6 +480,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     // 整个窗口顶栏都可作为标题栏：包括左侧 Web Agent、中间聊天和数字人顶部工具栏。
     return Boolean(target.closest(".qm-art-topbar, .session-sidebar.is-ruoyi-embedded .sidebar-header, .digital-human-panel__header"));
   }, []);
+  const isRuoyiToolbarInteractiveElement = useCallback((target: EventTarget | null) => (
+    target instanceof Element && Boolean(target.closest("button, a, input, select, textarea, [role='button'], [contenteditable='true']"))
+  ), []);
   const handleRuoyiToolbarPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !isRuoyiToolbarWindowGesture(event.target)) return;
     // 先保留原始单击。只有超过微小移动阈值时才捕获指针并进入拖动，避免按钮收不到 click。
@@ -497,12 +519,13 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     // 因此以坐标重新命中顶栏，而不是直接依赖 event.target。
     const handleDocumentDoubleClick = (event: MouseEvent) => {
       const target = document.elementFromPoint(event.clientX, event.clientY) ?? event.target;
-      if (!isRuoyiToolbarWindowGesture(target)) return;
+      // 工具栏按钮的双击仍应是两次单击，不能放大外层 RuoYi 窗口。
+      if (!isRuoyiToolbarWindowGesture(target) || isRuoyiToolbarInteractiveElement(target)) return;
       postRuoyiDialogEvent({ type: "qimiao-dialog-toggle-fullscreen" });
     };
     document.addEventListener("dblclick", handleDocumentDoubleClick, true);
     return () => document.removeEventListener("dblclick", handleDocumentDoubleClick, true);
-  }, [isRuoyiIntegration, isRuoyiToolbarWindowGesture, postRuoyiDialogEvent]);
+  }, [isRuoyiIntegration, isRuoyiToolbarInteractiveElement, isRuoyiToolbarWindowGesture, postRuoyiDialogEvent]);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -1455,7 +1478,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
     setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
-    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) setRightPanelOpen(false);
+    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) {
+      if (isRuoyiIntegration) setRightPanelExpanded(false);
+      else setRightPanelOpen(false);
+    }
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
@@ -1470,12 +1496,18 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         if (cur !== tabId) return cur;
         return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents);
       });
-      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
+      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) {
+        if (isRuoyiIntegration) setRightPanelExpanded(false);
+        else setRightPanelOpen(false);
+      }
       return;
     }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0) setRightPanelOpen(false);
+      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0) {
+        if (isRuoyiIntegration) setRightPanelExpanded(false);
+        else setRightPanelOpen(false);
+      }
       return next;
     });
     setActiveFileTabId((cur) => {
@@ -1483,7 +1515,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       const remaining = fileTabs.filter((t) => t.id !== tabId);
       return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
-  }, [fileTabs, terminalTabs, agentTabs]);
+  }, [fileTabs, terminalTabs, agentTabs, isRuoyiIntegration]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -1615,6 +1647,69 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
+  const rightExplorerCwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
+  const activePanelHasContent = Boolean(
+    activeFileTab?.filePath
+    || terminalTabs.some((tab) => tab.id === activeFileTabId)
+    || activeAgentTab,
+  );
+  useEffect(() => {
+    setRightFileSearchOpen(false);
+  }, [rightExplorerCwd]);
+  const panelTabContent = (
+    <>
+      {activeFileTab?.filePath ? (
+        <FileViewer
+          key={`${fileWorkspaceGeneration}:${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
+          filePath={activeFileTab.filePath}
+          cwd={activeCwd ?? undefined}
+          sourceSessionId={activeFileTab.sourceSessionId}
+          gitRefreshKey={explorerRefreshKey}
+          initialDisplayMode={activeFileTab.initialDisplayMode}
+          initialPage={activeFileTab.page}
+          initialState={activeFileTab.viewerState}
+          watchEnabled={rightPanelOpen}
+          onStateChange={(viewerState) => handleFileViewerStateChange(
+            fileWorkspaceGeneration,
+            activeFileTab.id,
+            activeFileTab.viewerRevision ?? 0,
+            viewerState,
+          )}
+          onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+          onAtMention={handleAtMention}
+          onOpenFile={(filePath, page) => handleOpenFile(
+            filePath,
+            getFileName(filePath),
+            { sourceSessionId: activeFileTab.sourceSessionId, page },
+          )}
+        />
+      ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab ? (
+        <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+          {translate("files.noneOpen")}
+        </div>
+      ) : null}
+      {terminalTabs.map((tab) => (
+        <div key={tab.id} hidden={tab.id !== activeFileTabId} style={{ width: "100%", height: "100%" }}>
+          <TerminalPanel
+            tab={tab}
+            active={rightPanelOpen && tab.id === activeFileTabId}
+            onRestart={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: "restart" } : item))}
+            onClosed={() => handleTerminalClosed(tab)}
+            onCloseError={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: undefined } : item))}
+          />
+        </div>
+      ))}
+      {activeAgentTab && (
+        <SubagentViewer
+          key={activeAgentTab.sessionId}
+          sessionId={activeAgentTab.sessionId}
+          fallbackLabel={activeAgentTab.label}
+          running={runningSessionIds.has(activeAgentTab.sessionId)}
+          onOpenFile={handleOpenLinkedFile}
+        />
+      )}
+    </>
+  );
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
@@ -1638,6 +1733,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         controlRef={sidebarControlRef}
         onNewSessionContextChange={handleSidebarNewSessionContext}
         hideWorkspacePicker={isRuoyiIntegration}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={handleSidebarToggle}
+        filesInRightPanel={isRuoyiIntegration}
         initialSessionId={initialSessionId}
         initialSessionLinked={initialLinkedSessionId !== null}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
@@ -2144,9 +2242,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
         onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? activeToolbarColor : "var(--text-muted)"; }}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-        </svg>
+        <FolderIcon size={18} />
       </button>
     );
   };
@@ -2355,7 +2451,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} className="qm-art-topbar" style={{ flexShrink: 0, background: "var(--bg)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
-          <button
+          {(!isRuoyiIntegration || !sidebarOpen) && <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -2364,22 +2460,25 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: sidebarOpen ? activeToolbarBackground : "none", border: "none", borderRight: "1px solid var(--border)",
-              color: sidebarOpen ? activeToolbarColor : "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+              background: sidebarOpen ? activeToolbarBackground : "none",
+              border: "none", borderRight: "1px solid var(--border)",
+              borderBottom: isRuoyiIntegration && !sidebarOpen ? "3px solid #409eff" : "3px solid transparent",
+              color: sidebarOpen || isRuoyiIntegration ? activeToolbarColor : "var(--text-muted)",
+              cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = sidebarOpen ? activeToolbarColor : "var(--text-muted)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = sidebarOpen || isRuoyiIntegration ? activeToolbarColor : "var(--text-muted)"; }}
           >
             {sidebarOpen ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
               </svg>
             ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
               </svg>
             )}
-          </button>
+          </button>}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -2521,21 +2620,26 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                   borderBottom: "1px solid var(--border)",
                   boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
                   padding: "12px 16px",
+                  ...(isRuoyiIntegration && !isMobile ? { width: "min(560px, 100%)", marginLeft: "auto" } : {}),
                 }}>
                   {sessionStats ? (() => {
                     const totalActiveMs = sessionStats.totalActiveMs ?? 0;
                     const ws = selectedSession;
+                    // 企业会话不展示本机路径、会话标识及项目元数据，避免暴露内部目录结构。
+                    const showSessionDiagnostics = !isRuoyiIntegration;
                     const sessionRows = [
                        ...(sessionStats.sessionName ? [{ label: translate("session.name"), value: sessionStats.sessionName, copyField: null }] : []),
-                       { label: translate("session.file"), value: sessionStats.sessionFile ?? translate("session.inMemory"), copyField: "file" as const },
-                       { label: translate("session.id"), value: sessionStats.sessionId, copyField: "id" as const },
-                       ...(totalActiveMs > 0 ? [{ label: translate("session.totalActive"), value: formatActiveDuration(totalActiveMs), copyField: null }] : []),
+                       ...(showSessionDiagnostics ? [
+                         { label: translate("session.file"), value: sessionStats.sessionFile ?? translate("session.inMemory"), copyField: "file" as const },
+                         { label: translate("session.id"), value: sessionStats.sessionId, copyField: "id" as const },
+                         ...(totalActiveMs > 0 ? [{ label: translate("session.totalActive"), value: formatActiveDuration(totalActiveMs), copyField: null }] : []),
+                       ] : []),
                     ];
-                    const projectRows = [
+                    const projectRows = showSessionDiagnostics ? [
                       ...(ws ? [{ label: translate("session.projectDir"), value: ws.projectRoot ?? ws.cwd, copyField: "projectDir" as const }] : []),
                       ...(ws?.branch ? [{ label: translate("session.gitBranch"), value: ws.branch, copyField: "gitBranch" as const }] : []),
                       ...(ws?.isWorktree ? [{ label: translate("session.gitWorktree"), value: ws.cwd, copyField: "gitWorktree" as const }] : []),
-                    ];
+                    ] : [];
                     const messageRows = [
                        [translate("session.user"), sessionStats.userMessages.toLocaleString(locale)],
                        [translate("session.assistant"), sessionStats.assistantMessages.toLocaleString(locale)],
@@ -2643,7 +2747,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                         </button>
                       );
                     };
-                    const sessionInfoSection = (
+                    const sessionInfoSection = sessionRows.length > 0 ? (
                       <div style={{ minWidth: 0 }}>
                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{translate("session.infoSection")}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", columnGap: 12, rowGap: 8, alignItems: "start" }}>
@@ -2662,7 +2766,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                           ))}
                         </div>
                       </div>
-                    );
+                    ) : null;
                     const projectInfoSection = projectRows.length > 0 ? (
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{translate("session.projectSection")}</div>
@@ -2684,16 +2788,19 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                       </div>
                     ) : null;
 
-                    return (
+                    const statistics = isRuoyiIntegration ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {sessionInfoSection}
+                        <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 0.65fr) minmax(220px, 1.35fr)", gap: 18 }}>
+                          {section(translate("session.messages"), messageRows)}
+                          {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
+                        </div>
+                      </div>
+                    ) : (
                       <div style={{
                         display: "grid",
-                        gridTemplateColumns: isMobile
-                          ? "1fr"
-                          : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
+                        gridTemplateColumns: isMobile ? "1fr" : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
                         gap: isMobile ? 16 : 24,
-                        fontSize: 12,
-                        lineHeight: 1.5,
-                        fontFamily: "var(--font-mono)",
                       }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 20 }}>
                           {sessionInfoSection}
@@ -2701,6 +2808,16 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                         </div>
                          {section(translate("session.messages"), messageRows)}
                          {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
+                      </div>
+                    );
+
+                    return (
+                      <div style={{
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        fontFamily: "var(--font-mono)",
+                      }}>
+                        {statistics}
                       </div>
                     );
                   })() : (
@@ -2912,56 +3029,44 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
-            <FileViewer
-              key={`${fileWorkspaceGeneration}:${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
-              filePath={activeFileTab.filePath}
-              cwd={activeCwd ?? undefined}
-              sourceSessionId={activeFileTab.sourceSessionId}
-              gitRefreshKey={explorerRefreshKey}
-              initialDisplayMode={activeFileTab.initialDisplayMode}
-              initialPage={activeFileTab.page}
-              initialState={activeFileTab.viewerState}
-              watchEnabled={rightPanelOpen}
-              onStateChange={(viewerState) => handleFileViewerStateChange(
-                fileWorkspaceGeneration,
-                activeFileTab.id,
-                activeFileTab.viewerRevision ?? 0,
-                viewerState,
-              )}
-              onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
-              onAtMention={handleAtMention}
-              onOpenFile={(filePath, page) => handleOpenFile(
-                filePath,
-                getFileName(filePath),
-                { sourceSessionId: activeFileTab.sourceSessionId, page },
-              )}
-            />
-          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab ? (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-               {translate("files.noneOpen")}
+          {isRuoyiIntegration ? (
+            <div className={`ruoyi-file-workbench${activePanelHasContent ? " is-viewing" : ""}`}>
+              {activePanelHasContent && <div className="ruoyi-file-viewer">{panelTabContent}</div>}
+              <aside className="ruoyi-file-browser" aria-label={translate("sidebar.tabFiles")}>
+                <div className="ruoyi-file-browser-head">
+                  <span>{translate("sidebar.tabFiles")}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRightFileSearchOpen((open) => !open)}
+                    title={translate("sidebar.searchFiles")}
+                    aria-label={translate("sidebar.searchFiles")}
+                    aria-expanded={rightFileSearchOpen}
+                    aria-controls="file-search-input"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="ruoyi-file-browser-scroll scrollbar-subtle">
+                  {rightExplorerCwd ? (
+                    <FileExplorer
+                      cwd={rightExplorerCwd}
+                      onOpenFile={handleOpenFile}
+                      refreshKey={explorerRefreshKey}
+                      onAtMention={handleAtMention}
+                      onAtMentions={handleAtMentions}
+                      changesCollapsed
+                      fileSearchOpen={rightFileSearchOpen}
+                      onFileSearchOpenChange={setRightFileSearchOpen}
+                    />
+                  ) : (
+                    <div className="ruoyi-file-browser-empty">{translate("sidebar.selectProject")}</div>
+                  )}
+                </div>
+              </aside>
             </div>
-          ) : null}
-          {terminalTabs.map((tab) => (
-            <div key={tab.id} hidden={tab.id !== activeFileTabId} style={{ width: "100%", height: "100%" }}>
-              <TerminalPanel
-                tab={tab}
-                active={rightPanelOpen && tab.id === activeFileTabId}
-                onRestart={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: "restart" } : item))}
-                onClosed={() => handleTerminalClosed(tab)}
-                onCloseError={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: undefined } : item))}
-              />
-            </div>
-          ))}
-          {activeAgentTab && (
-            <SubagentViewer
-              key={activeAgentTab.sessionId}
-              sessionId={activeAgentTab.sessionId}
-              fallbackLabel={activeAgentTab.label}
-              running={runningSessionIds.has(activeAgentTab.sessionId)}
-              onOpenFile={handleOpenLinkedFile}
-            />
-          )}
+          ) : panelTabContent}
         </div>
       </div>
       {isRuoyiIntegration && digitalHumanOpen && (

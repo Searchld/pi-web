@@ -46,7 +46,8 @@ import type { PiSdkInternals } from "@/lib/pi-sdk-internals";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { freshFolderTrustBreadth, getProjectTrustStatus, trustFreshFolderAndWrite } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
 
@@ -657,8 +658,18 @@ export async function POST(req: Request) {
         }
         return await undoRemoval(agentDir, project, body.token);
       }
-      case "add":
+      case "add": {
+        if (isRuoyiIntegrationEnabled()) {
+          if (!project) return refusal(400, "invalid-request", "A project server needs the project's cwd");
+          // 企业用户各自使用固定工作区，新 MCP 不得写入所有用户共用的全局配置。
+          const trustDenied = await trustVerifiedRuoyiWorkspace(req, project.cwd);
+          if (trustDenied) return trustDenied;
+          const refreshedProject = await validateProject(project.cwd);
+          if (refreshedProject instanceof Refusal) return refreshedProject.response();
+          return await addServer(agentDir, refreshedProject, internals, { ...body, scope: "project" });
+        }
         return await addServer(agentDir, project, internals, body);
+      }
       default:
         return refusal(400, "invalid-request", "action must be add, enable, disable, remove, set-enabled, set-exposure, set-in-project, undo or sign-out");
     }

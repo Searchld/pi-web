@@ -357,11 +357,14 @@ function AddSkillPanel({
   cwd,
   installedPackages,
   projectResourcesLoaded,
+  projectOnly,
   onInstalled,
 }: {
   cwd: string;
   installedPackages: Record<SkillInstallScope, ReadonlySet<string>>;
   projectResourcesLoaded: boolean;
+  /** RuoYi 用户的技能只安装到各自固定工作区。 */
+  projectOnly: boolean;
   onInstalled: () => void;
 }) {
   const { t } = useI18n();
@@ -374,7 +377,7 @@ function AddSkillPanel({
   const [newlyInstalledPkgs, setNewlyInstalledPkgs] = useState<Set<string>>(
     new Set(),
   );
-  const [scope, setScope] = useState<"global" | "project">("global");
+  const [scope, setScope] = useState<"global" | "project">(() => projectOnly ? "project" : "global");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -460,10 +463,12 @@ function AddSkillPanel({
             <ConfigSaveTarget
               value={scope}
               label={t("config.saveTo")}
-              options={[
-                { value: "global", label: scopeLabel("global", t) },
-                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-              ]}
+              options={projectOnly
+                ? [{ value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded }]
+                : [
+                    { value: "global", label: scopeLabel("global", t) },
+                    { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+                  ]}
               path={installPath}
               disabledReason={t("trust.projectScopeUnavailable")}
               onChange={setScope}
@@ -628,12 +633,14 @@ export function SkillsConfig({
   onClose,
   embedded = false,
   trust,
+  isRuoyiIntegration = false,
 }: {
   cwd: string;
   onClose: () => void;
   embedded?: boolean;
   /** The page's trust status for `cwd`; a new decision loads the list again. */
   trust?: ProjectTrustStatus | null;
+  isRuoyiIntegration?: boolean;
 }) {
   const { t } = useI18n();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -1012,6 +1019,7 @@ export function SkillsConfig({
               <AddSkillPanel
                 cwd={cwd}
                 projectResourcesLoaded={projectResourcesLoaded}
+                projectOnly={isRuoyiIntegration}
                 installedPackages={{
                   global: new Set(
                     skills

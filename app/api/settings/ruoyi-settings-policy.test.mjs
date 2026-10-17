@@ -37,3 +37,30 @@ test("RuoYi 设置权限同时保护页签背后的 API", async () => {
     assert.match(source, new RegExp(`requireRuoyiSettingsAccess\\(req, "${section}"\\)`), route);
   }
 });
+
+test("RuoYi 技能安装固定写入用户项目目录，不接受全局范围", async () => {
+  const source = await readFile("app/api/skills/install/route.ts", "utf8");
+  assert.match(source, /const isGlobal = !isRuoyiIntegrationEnabled\(\) && scope !== "project";/);
+  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, cwd\)/);
+});
+
+test("RuoYi 插件安装固定写入用户项目目录，不接受全局范围", async () => {
+  const source = await readFile("app/api/plugins/route.ts", "utf8");
+  assert.match(source, /const isRuoyiProjectInstall = isRuoyiIntegrationEnabled\(\) && body\.action === "install";/);
+  assert.match(source, /const scope = isRuoyiProjectInstall \? "project" : readScope\(body\.scope\);/);
+  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, body\.cwd\)/);
+});
+
+test("RuoYi 子代理配置固定写入用户项目目录，不接受全局范围", async () => {
+  const source = await readFile("app/api/subagents/profiles/route.ts", "utf8");
+  assert.match(source, /const isRuoyiProjectProfile = isRuoyiIntegrationEnabled\(\);/);
+  assert.match(source, /const scope = isRuoyiProjectProfile \? "project" : requestedScope;/);
+  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, cwd\)/);
+});
+
+test("RuoYi 新 MCP 固定写入用户项目目录，不接受全局范围", async () => {
+  const source = await readFile("app/api/mcp/route.ts", "utf8");
+  assert.match(source, /if \(isRuoyiIntegrationEnabled\(\)\) \{/);
+  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, project\.cwd\)/);
+  assert.match(source, /\{ \.\.\.body, scope: "project" \}/);
+});

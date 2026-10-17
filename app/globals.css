@@ -2939,6 +2939,96 @@ span.token.table {
   outline-offset: -3px;
 }
 
+/* RuoYi 把文件树收进右侧文件面板；打开文件后与预览并排，不再占用会话侧栏。 */
+.ruoyi-file-workbench {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ruoyi-file-viewer {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ruoyi-file-browser {
+  display: flex;
+  flex: 0 0 320px;
+  flex-direction: column;
+  min-width: 220px;
+  min-height: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+}
+
+.ruoyi-file-workbench:not(.is-viewing) .ruoyi-file-browser {
+  flex-basis: 100%;
+  border-left: 0;
+}
+
+.ruoyi-file-browser-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ruoyi-file-browser-head button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ruoyi-file-browser-head button:hover,
+.ruoyi-file-browser-head button[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ruoyi-file-browser-head button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ruoyi-file-browser-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ruoyi-file-browser .file-explorer-item {
+  height: 30px !important;
+  padding-right: 10px !important;
+}
+
+.ruoyi-file-browser .file-explorer-item-name {
+  font-size: 13px !important;
+}
+
+.ruoyi-file-browser-empty {
+  padding: 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
   .chat-stats-center {
@@ -2988,6 +3078,9 @@ span.token.table {
   .file-panel-expand-button,
   .panel-resize-handle,
   .right-panel-overlay-backdrop {
+    display: none;
+  }
+  .ruoyi-file-workbench.is-viewing .ruoyi-file-browser {
     display: none;
   }
   .directory-picker-back,
@@ -3091,7 +3184,6 @@ span.token.table {
   min-height: 38px;
   margin-top: 2px !important;
   padding: 7px 0 0 !important;
-  border-top: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
 }
 
 /* RuoYi 模式下的数字人是独立侧栏，文件面板仍可单独开关。 */

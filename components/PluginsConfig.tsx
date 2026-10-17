@@ -137,6 +137,10 @@ function installLocation(scope: PluginScope, cwd: string): string {
     : "~/.pi/agent/{npm,git}";
 }
 
+export function defaultPluginInstallScope(isRuoyiIntegration: boolean): PluginScope {
+  return isRuoyiIntegration ? "project" : "global";
+}
+
 function findInstalledPackage(
   packages: PluginPackageInfo[],
   source: string,
@@ -250,6 +254,7 @@ function AddPluginPanel({
   source,
   scope,
   projectResourcesLoaded,
+  projectOnly,
   busy,
   actionError,
   onSourceChange,
@@ -260,6 +265,8 @@ function AddPluginPanel({
   source: string;
   scope: PluginScope;
   projectResourcesLoaded: boolean;
+  /** RuoYi 用户的插件只安装到各自固定工作区。 */
+  projectOnly: boolean;
   busy: boolean;
   actionError: string | null;
   onSourceChange: (value: string) => void;
@@ -289,10 +296,12 @@ function AddPluginPanel({
         <ConfigSaveTarget
           value={scope}
           label={t("config.saveTo")}
-          options={[
-            { value: "global", label: scopeLabel("global", t) },
-            { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-          ]}
+          options={projectOnly
+            ? [{ value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded }]
+            : [
+                { value: "global", label: scopeLabel("global", t) },
+                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+              ]}
           path={installLocation(scope, cwd)}
           disabledReason={t("trust.projectScopeUnavailable")}
           onChange={onScopeChange}
@@ -570,6 +579,7 @@ export function PluginsConfig({
   onReloaded,
   embedded = false,
   trust,
+  isRuoyiIntegration = false,
 }: {
   cwd: string;
   sessionId: string | null;
@@ -578,6 +588,7 @@ export function PluginsConfig({
   embedded?: boolean;
   /** The page's trust status for `cwd`; a new decision loads the list again. */
   trust?: ProjectTrustStatus | null;
+  isRuoyiIntegration?: boolean;
 }) {
   const { t } = useI18n();
   const [data, setData] = useState<PluginsResponse | null>(null);
@@ -586,7 +597,7 @@ export function PluginsConfig({
   const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("plugins", cwd));
   const [addMode, setAddMode] = useState(false);
   const [installSource, setInstallSource] = useState("");
-  const [installScope, setInstallScope] = useState<PluginScope>("global");
+  const [installScope, setInstallScope] = useState<PluginScope>(() => defaultPluginInstallScope(isRuoyiIntegration));
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -1012,6 +1023,7 @@ export function PluginsConfig({
                 source={installSource}
                 scope={installScope}
                 projectResourcesLoaded={projectResourcesLoaded}
+                projectOnly={isRuoyiIntegration}
                 busy={addBusy}
                 actionError={actionError}
                 onSourceChange={setInstallSource}

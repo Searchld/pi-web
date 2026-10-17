@@ -296,6 +296,7 @@ export function McpConfig({
   cwd,
   onClose,
   embedded = false,
+  isRuoyiIntegration = false,
   trust,
   onTrustProject,
   onProjectTrustChanged,
@@ -303,6 +304,8 @@ export function McpConfig({
   cwd: string | null;
   onClose: () => void;
   embedded?: boolean;
+  /** RuoYi 用户的新 MCP 只写入自己的项目目录。 */
+  isRuoyiIntegration?: boolean;
   /** The page's trust status for `cwd`; a change reloads the panel. */
   trust?: ProjectTrustStatus | null;
   /** Opens the page's trust dialog for `cwd`; without it the trust notice has no button. */
@@ -337,7 +340,8 @@ export function McpConfig({
   const [pollRound, setPollRound] = useState(0);
   // The add pane: open or not, what was typed (kept while another row is shown), why the last Add was refused, and what it added.
   const [adding, setAdding] = useState(false);
-  const [addDraft, setAddDraft] = useState<McpAddDraft>(EMPTY_MCP_ADD_DRAFT);
+  const emptyAddDraft = () => isRuoyiIntegration ? { ...EMPTY_MCP_ADD_DRAFT, scope: "project" as const } : EMPTY_MCP_ADD_DRAFT;
+  const [addDraft, setAddDraft] = useState<McpAddDraft>(emptyAddDraft);
   // The draft as it stands now, for an Add's answer to tell whether it is still about it: the pane
   // stays editable while the request is out, and every change makes a new draft object.
   const addDraftRef = useRef(addDraft);
@@ -715,7 +719,7 @@ export function McpConfig({
     const { added: written, trust: writtenTrust, trustedFolder } = result.data;
     setAdding(false);
     // What was typed since is kept for the next Add rather than thrown away.
-    if (!edited) setAddDraft(EMPTY_MCP_ADD_DRAFT);
+    if (!edited) setAddDraft(emptyAddDraft());
     // The pane goes with its button and its box: focus moves to the new server's row, which the answer selected.
     setFocusBack({ control: null, toSelectedRow: true });
     if (!written) return;
@@ -771,6 +775,7 @@ export function McpConfig({
       selected={selected}
       refreshing={refreshing}
       embedded={embedded}
+      isRuoyiIntegration={isRuoyiIntegration}
       codemodeSave={codemodeSave}
       busy={busy}
       actionError={actionError}
@@ -789,8 +794,9 @@ export function McpConfig({
         setActionError(null);
       }}
       onAddDraftChange={(draft) => {
-        addDraftRef.current = draft;
-        setAddDraft(draft);
+        const next = isRuoyiIntegration ? { ...draft, scope: "project" as const } : draft;
+        addDraftRef.current = next;
+        setAddDraft(next);
         // What was refused was about the draft as it stood.
         setAddFailure(null);
       }}
@@ -835,6 +841,7 @@ export function McpConfigView({
   selected,
   refreshing,
   embedded,
+  isRuoyiIntegration = false,
   codemodeSave = { saving: false, error: null },
   busy = null,
   actionError = null,
@@ -874,6 +881,8 @@ export function McpConfigView({
   selected: string | null;
   refreshing: boolean;
   embedded: boolean;
+  /** RuoYi 用户只能新增项目范围的 MCP。 */
+  isRuoyiIntegration?: boolean;
   codemodeSave?: McpCodemodeSaveState;
   /** The change on its way, if any: `switch:<key>`, `in-project:<key>`, `remove:<key>`, `sign-out:<key>`, `group:<scope>` or `undo`. */
   busy?: string | null;
@@ -1116,6 +1125,7 @@ export function McpConfigView({
                 busy={busy === "add"}
                 controlsBusy={controlsBusy}
                 failure={addFailure}
+                projectOnly={isRuoyiIntegration}
                 onDraftChange={onAddDraftChange}
                 onSubmit={onAddSubmit}
                 onTrustProject={onTrust}

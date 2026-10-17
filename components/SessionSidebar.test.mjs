@@ -629,7 +629,7 @@ test("a new session moves the cwd and hands the shell the target's project", () 
 
 test("a group's + starts a session at once, in the sidebar's worktree for the current project", () => {
   const body = callbackBody("handleGroupNew");
-  assert.match(body, /const handleGroupNew = useCallback\(\(project: SidebarProject\) => \{\s*setMenu\(null\);\s*startNewSessionIn\(\{\s*cwd: project\.current && selectedCwd \? selectedCwd : project\.root,\s*projectKey: project\.key,\s*projectRoot: project\.root,\s*\}\);/);
+  assert.match(body, /const handleGroupNew = useCallback\(\(project: SidebarProject\) => \{\s*setMenu\(null\);\s*startNewSessionIn\(newSessionTargetForProject\(project, selectedCwd\)\);/);
   assert.match(body, /\}, \[selectedCwd, startNewSessionIn\]\);/);
   assert.doesNotMatch(body, /fetch\(|\/api\/worktrees|kind: "worktrees"/);
   assert.match(source, /onGroupNew: handleGroupNew,/);
@@ -703,9 +703,9 @@ test("archive keeps an undo snapshot and clears unread markers", () => {
   assert.match(body, /\.then\(\(ok\) => \{\s*\/\/[^\n]*\n\s*if \(ok \|\| unreadBefore\.length === 0\) return;\s*const partIds = new Set\(part\.flatMap\(\(family\) => familyIds\(family\)\)\);\s*restoreUnread\(unreadBefore\.filter\(\(id\) => partIds\.has\(id\)\)\);/);
   // The session open by then has been read: its marker stays off.
   assert.match(callbackBody("restoreUnread"), /if \(id !== selectedSessionIdRef\.current\) next\.add\(id\);/);
-  assert.match(body, /\{ id: "view", label: t\("sidebar\.viewArchive"\), onClick: openArchiveView \}/);
+  assert.match(body, /\{ id: "view", label: t\("sidebar\.viewArchive"\), onClick: \(\) => openArchiveView\(\) \}/);
   assert.match(callbackBody("archiveFamily"), /if \(familyIds\(family\)\.some\(\(id\) => runningSessionIds\.has\(id\)\)\) return;/);
-  assert.match(callbackBody("restoreFamily"), /void applyUiState\(\{ action: "set", ids, archived: false \}\);[\s\S]*?t\("sidebar\.restoredToast"/);
+  assert.match(callbackBody("restoreFamilies"), /void applyUiState\(\{ action: "set", ids: part, archived: false \}\);[\s\S]*?t\("sidebar\.restoredToast"/);
   // A refused save is reported once per failure.
   assert.match(callbackBody("applyUiState"), /if \(!ok\) setUiWriteFailures\(\(count\) => count \+ 1\);/);
   assert.match(source, /showToast\(t\("sidebar\.uiStateFailed", \{ error: uiStateError \?\? "" \}\)\);/);
@@ -736,13 +736,16 @@ test("the footer opens the project list in the files; fixed workspaces remove it
   // Once the files show, the picker's project menu opens below its button.
   assert.match(footer, /if \(target === "project-list"\) filesPickerRef\.current\?\.openMenu\("project"\);/);
   assert.match(source, /onOpenOtherProject: handleOpenOtherProject,/);
-  assert.match(source, /onOpenArchive: openArchiveView,/);
+  assert.match(source, /onOpenArchive: \(\) => openArchiveView\(\),/);
   // The sessions tab, in the tabs layout (switchTab does nothing below the files).
   assert.match(callbackBody("openArchiveView"), /setArchiveView\(true\);[\s\S]*?setSessionSearchOpen\(false\);\s*switchTab\("sessions"\);/);
   assert.match(source, /const treeGroupExpansion = hideWorkspacePicker \? EMPTY_GROUP_EXPANSION : shownGroupExpansion;/);
+  assert.match(source, /const treeMoreShown = useMemo\(\(\) => \{[\s\S]*?if \(!hideWorkspacePicker\) return moreShown;[\s\S]*?\[PINNED_MORE_KEY\]: Number\.MAX_SAFE_INTEGER,[\s\S]*?\[currentProjectKey\]: Number\.MAX_SAFE_INTEGER/);
+  assert.match(source, /groupExpansion: treeGroupExpansion,\s*moreShown: treeMoreShown,/);
   assert.match(source, /const sessionTreeRows = hideWorkspacePicker\s*\? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open" && row\.kind !== "group" && row\.kind !== "group-empty"\)\s*: model\.rows;/);
+  assert.match(source, /<div className="ruoyi-recent-toolbar">[\s\S]*?\{t\("sidebar\.recent"\)\}[\s\S]*?onClick=\{handleNewSession\}[\s\S]*?setSessionSearchOpen\(\(open\) => !open\)/);
   assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionTreeRows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
-  assert.match(source, /<SessionTree \{\.\.\.treeProps\} rows=\{archiveRows\} emptyLabel=\{t\("sidebar\.noArchived"\)\} \/>/);
+  assert.match(source, /<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{archiveRows\}\s+emptyLabel=\{t\("sidebar\.noArchived"\)\}\s+reveal=\{archiveReveal\}\s+onRevealHandled=\{handleArchiveRevealHandled\}\s+\/>/);
   assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
   assert.match(callbackBody("handleTogglePinned"), /setPinnedCollapsed\(next\);\s*savePinnedCollapsed\(next\);/);
   const locked = render({ hideWorkspacePicker: true });

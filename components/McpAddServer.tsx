@@ -154,6 +154,7 @@ export function McpAddServer({
   busy,
   controlsBusy,
   failure,
+  projectOnly = false,
   onDraftChange,
   onSubmit,
   onTrustProject,
@@ -167,6 +168,8 @@ export function McpAddServer({
   controlsBusy: boolean;
   /** Why the route refused the last Add. */
   failure: McpActionFailure | null;
+  /** 企业模式只允许把新服务器写入当前项目。 */
+  projectOnly?: boolean;
   onDraftChange: (draft: McpAddDraft) => void;
   onSubmit: (request: McpAddActionRequest) => void;
   /** Opens the trust dialog, for a project that needs a trust decision first. */
@@ -175,8 +178,11 @@ export function McpAddServer({
   const { t } = useI18n();
   const blockId = useId();
   const nameId = useId();
-  const analysis = useMemo(() => mcpAddAnalysis(draft, data, cwd), [draft, data, cwd]);
-  const offersRawPi = useMemo(() => mcpAddOffersRawPi(draft.text), [draft.text]);
+  const effectiveDraft = useMemo<McpAddDraft>(() => (
+    projectOnly ? { ...draft, scope: "project" } : draft
+  ), [draft, projectOnly]);
+  const analysis = useMemo(() => mcpAddAnalysis(effectiveDraft, data, cwd), [effectiveDraft, data, cwd]);
+  const offersRawPi = useMemo(() => mcpAddOffersRawPi(effectiveDraft.text), [effectiveDraft.text]);
   const { parsed, server, preview, projectBlock, submitBlock } = analysis;
   // The paste's secrets that can be read from a variable have their own rows below, which say it.
   const allNotes = server ? [...server.notes, ...parsed.notes].filter((note) => (
@@ -184,19 +190,20 @@ export function McpAddServer({
   )) : [];
   // The name's notes go under its box, and only while it holds the importer's name: once edited,
   // they would describe a name no longer there.
-  const nameEdited = draft.name !== undefined && draft.name !== server?.name;
+  const nameEdited = effectiveDraft.name !== undefined && effectiveDraft.name !== server?.name;
   const nameNotes = nameEdited ? [] : allNotes.filter((note) => NAME_NOTE_CODES.has(note.code));
   const notes = allNotes.filter((note) => !NAME_NOTE_CODES.has(note.code));
   const canSubmit = !busy && !controlsBusy && submitBlock === undefined;
   const submit = () => {
-    if (canSubmit) onSubmit(mcpAddRequest(draft, analysis));
+    if (canSubmit) onSubmit(mcpAddRequest(effectiveDraft, analysis));
   };
-  const change = (patch: Partial<McpAddDraft>) => onDraftChange({ ...draft, ...patch });
+  const updateDraft = (next: McpAddDraft) => onDraftChange(projectOnly ? { ...next, scope: "project" } : next);
+  const change = (patch: Partial<McpAddDraft>) => updateDraft({ ...effectiveDraft, ...patch });
   const targetFile = data.files.find((file) => file.scope === analysis.scope)?.path
     ?? (analysis.scope === "project" && cwd ? `${cwd.replace(/[\\/]+$/, "")}/.pi/mcp.json` : "mcp.json");
   // Why Add waits, under it. Project picked, then blocked (a secret typed since) is said here too:
   // the switch at the top explains only a disabled option, and the way out is often in the fields above Add.
-  const ownBlockLine = submitBlock && (draft.text.trim() !== "" || submitBlock.kind === "mcp-off")
+  const ownBlockLine = submitBlock && (effectiveDraft.text.trim() !== "" || submitBlock.kind === "mcp-off")
     ? submitBlockText(submitBlock, t, server?.fields)
     : undefined;
   const trustable = projectBlock?.kind === "project-untrusted" && projectBlock.trustable && onTrustProject;
@@ -211,10 +218,12 @@ export function McpAddServer({
         <ConfigSaveTarget
           value={analysis.scope}
           label={t("config.saveTo")}
-          options={[
-            { value: "global", label: scopeLabel("global", t) },
-            { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
-          ]}
+          options={projectOnly
+            ? [{ value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" }]
+            : [
+              { value: "global", label: scopeLabel("global", t) },
+              { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
+            ]}
           path={displayPath(targetFile)}
           disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
           onChange={(scope) => change({ scope })}
@@ -232,26 +241,26 @@ export function McpAddServer({
       inputLabel={t("mcp.add.inputLabel")}
       inputId="mcp-add-source"
       placeholder={t("mcp.add.placeholder")}
-      value={draft.text}
+      value={effectiveDraft.text}
       canSubmit={canSubmit}
-      onValueChange={(text) => onDraftChange(mcpAddDraftWithPaste(draft, { text }))}
+      onValueChange={(text) => updateDraft(mcpAddDraftWithPaste(effectiveDraft, { text }))}
       onSubmit={submit}
       examplesLabel={t("mcp.add.examples")}
       // Every format the importer reads, each with an example, only while the box is empty: clicking one replaces the paste.
-      examples={draft.text.trim() === "" ? MCP_ADD_EXAMPLES.map(({ source, text }) => ({ label: t(MCP_IMPORT_SOURCE_KEYS[source]), value: text })) : []}
+      examples={effectiveDraft.text.trim() === "" ? MCP_ADD_EXAMPLES.map(({ source, text }) => ({ label: t(MCP_IMPORT_SOURCE_KEYS[source]), value: text })) : []}
       multiline
     >
       {offersRawPi && (
         <label className="mcp-add-toggle">
-          <input type="checkbox" checked={draft.rawPi} onChange={(event) => onDraftChange(mcpAddDraftWithPaste(draft, { rawPi: event.target.checked }))} />
+          <input type="checkbox" checked={effectiveDraft.rawPi} onChange={(event) => updateDraft(mcpAddDraftWithPaste(effectiveDraft, { rawPi: event.target.checked }))} />
           <span className="mcp-config-lines">
             <span className="mcp-config-line">{t("mcp.add.rawPi")}</span>
-            {draft.rawPi && <span className="mcp-config-line is-dim">{t("mcp.add.rawPiOn")}</span>}
+            {effectiveDraft.rawPi && <span className="mcp-config-line is-dim">{t("mcp.add.rawPiOn")}</span>}
           </span>
         </label>
       )}
 
-      {!parsed.ok && draft.text.trim() !== "" && <McpImportNotes notes={parsed.notes} />}
+      {!parsed.ok && effectiveDraft.text.trim() !== "" && <McpImportNotes notes={parsed.notes} />}
 
       {parsed.ok && parsed.servers.length > 1 && (
         <ConfigField label={t("mcp.add.serverLabel")}>
@@ -359,10 +368,10 @@ export function McpAddServer({
                   key={field.id}
                   field={field}
                   fields={server.fields}
-                  draft={draft}
+                  draft={effectiveDraft}
                   suggestedName={mcpFieldSuggestedVariableName(field, analysis.name)}
                   problem={analysis.fieldProblems[field.id]}
-                  onDraftChange={onDraftChange}
+                  onDraftChange={updateDraft}
                 />
               ))}
             </>
@@ -375,11 +384,11 @@ export function McpAddServer({
                 <McpAddSecretInput
                   key={label}
                   label={label}
-                  draft={draft}
+                  draft={effectiveDraft}
                   suggestedName={mcpSuggestedVariableName(label, analysis.name)}
                   stored={analysis.fill?.ok ? storedValue(analysis.fill.config, label) : undefined}
                   problem={analysis.fieldProblems[label]}
-                  onDraftChange={onDraftChange}
+                  onDraftChange={updateDraft}
                 />
               ))}
             </>
@@ -428,7 +437,7 @@ export function McpAddServer({
                   variant="danger"
                   size="small"
                   disabled={busy || controlsBusy || submitBlock !== undefined}
-                  onClick={() => onSubmit(mcpAddRequest(draft, analysis, failure.names))}
+                  onClick={() => onSubmit(mcpAddRequest(effectiveDraft, analysis, failure.names))}
                 >
                   {t("mcp.add.hostEnv.confirm")}
                 </ConfigButton>

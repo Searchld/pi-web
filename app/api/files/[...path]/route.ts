@@ -773,8 +773,8 @@ export async function GET(
     }
 
     // `hidden=1` (the explorer's "show hidden" switch) also lists what Git
-    // ignores and what the name list hides, marked with the reason; `.git`
-    // and `.DS_Store` stay out either way.
+    // ignores and what the name list hides, marked with the reason; `.pi`,
+    // `.git` and `.DS_Store` stay out either way.
     const showHidden = request.nextUrl.searchParams.get("hidden") === "1";
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.

@@ -2404,9 +2404,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                // Mobile: icon-only so the placeholder and draft keep the width.
-                ...(isMobile ? { width: 36, height: 36, padding: 0 } : { padding: "7px 14px" }),
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 36, height: 36, padding: 0,
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
@@ -2423,7 +2422,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              {!isMobile && t("chat.send")}
             </button>
           )}
           </div>

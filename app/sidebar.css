@@ -931,25 +931,20 @@ a.session-tree-main {
   font-weight: 600;
 }
 
-/* 业务会话采用旧版两行卡片：标题在上，时间和消息数在下；项目树和操作仍由原模型管理。 */
+/* RuoYi 固定工作区按 Codex 的“最近”会话清单展示，不再重复项目名称。 */
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session {
   padding: 0 6px 4px;
   border-radius: 8px;
 }
 
-/* 隐藏固定工作区标题后，首条业务会话仍与工具栏保持呼吸间距。 */
-.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-scroll {
-  padding-top: 8px;
-}
-
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover {
   background: var(--bg-hover);
-  box-shadow: inset 0 -4px var(--bg);
+  box-shadow: none;
 }
 
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  box-shadow: inset 0 -4px var(--bg);
+  background: var(--bg-hover);
+  box-shadow: none;
 }
 
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected:not(.is-confirming)::before {
@@ -986,6 +981,54 @@ a.session-tree-main {
   font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
+}
+
+.ruoyi-recent-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 12px 0 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ruoyi-recent-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ruoyi-recent-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ruoyi-recent-action:hover,
+.ruoyi-recent-action.is-active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ruoyi-recent-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ruoyi-recent-action:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .session-tree.is-roomy .session-tree-session.is-selected .session-tree-card-content .session-tree-title {
@@ -1235,6 +1278,30 @@ a.session-tree-main {
 .sidebar-search-toggle {
   width: 36px;
   padding: 0;
+}
+
+/* RuoYi 的会话折叠键复用原搜索格的位置；折叠后由主工具栏的同一键恢复。 */
+.sidebar-collapse-toggle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sidebar-collapse-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar-collapse-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .sidebar-new-button:disabled {

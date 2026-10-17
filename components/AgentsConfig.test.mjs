@@ -47,6 +47,40 @@ test("draft backfills code mode for legacy profiles and keeps an explicit choice
   }
 });
 
+test("RuoYi subagent profiles default to the project scope", () => {
+  const declaration = source.slice(source.indexOf("function defaultSubagentProfileScope("), source.indexOf("const EMPTY_PROFILE"));
+  const code = ts.transpileModule(declaration, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const defaultScope = vm.runInNewContext(`${code}; defaultSubagentProfileScope`);
+  assert.equal(defaultScope(true), "project");
+  assert.equal(defaultScope(false), "global");
+});
+
+test("built-in profile text is localized without changing profile names", () => {
+  const declaration = source.slice(source.indexOf("const BUILTIN_PROFILE_TEXT_KEYS"), source.indexOf("function Field("));
+  const code = ts.transpileModule(declaration, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const { builtInProfileText, profileLabel } = vm.runInNewContext(`${code}; ({ builtInProfileText, profileLabel })`);
+  const t = (key) => ({
+    "agents.builtin.generalPurpose": "通用",
+    "agents.builtin.explore": "探索",
+    "agents.builtin.plan": "规划",
+    "agents.builtin.exploreDescription": "快速检查代码库，不修改文件",
+    "agents.builtin.explorePrompt": "检查代码库以回答委派的问题。不要修改文件。报告具体发现，并附上文件路径和相关符号。",
+  })[key];
+
+  const explore = {
+    scope: "builtin",
+    name: "explore",
+    displayName: "Explore",
+    description: "Quickly inspect a codebase without modifying it",
+    systemPrompt: "Explore the codebase to answer the delegated question. Do not modify files. Report concrete findings with file paths and relevant symbols.",
+  };
+  assert.equal(profileLabel(explore, t), "探索");
+  assert.equal(builtInProfileText(explore, "description", explore.description, t), "快速检查代码库，不修改文件");
+  assert.equal(builtInProfileText(explore, "prompt", explore.systemPrompt, t), "检查代码库以回答委派的问题。不要修改文件。报告具体发现，并附上文件路径和相关符号。");
+  assert.equal(profileLabel({ scope: "builtin", name: "other", displayName: "Other" }, t), "Other");
+  assert.equal(profileLabel({ scope: "global", name: "explore", displayName: "自定义探索" }, t), "自定义探索");
+});
+
 test("a profile model's pi :level suffix names its base model; a listed colon id matches whole", () => {
   const constant = source.slice(source.indexOf("const THINKING_OPTIONS"), source.indexOf("\n", source.indexOf("const THINKING_OPTIONS")));
   const declaration = source.slice(source.indexOf("function profileModelBase("), source.indexOf("function profileKey("));

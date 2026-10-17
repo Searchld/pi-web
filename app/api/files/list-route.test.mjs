@@ -71,9 +71,10 @@ test("keeps the name list for a directory outside Git", async () => {
   assert.deepEqual(await listNames(plain), ["src"]);
 });
 
-test("hidden=1 also lists ignored and name-list entries with their reason, never .git", async () => {
+test("hidden=1 also lists ignored and name-list entries with their reason, never .pi or .git", async () => {
   const repo = path.join(root, "repo-hidden");
   write(path.join(repo, ".gitignore"), "dist/\n");
+  write(path.join(repo, ".pi", "mcp.json"), "{}");
   write(path.join(repo, "dist/bundle.js"));
   write(path.join(repo, "src/main.ts"));
   execFileSync("git", ["-C", repo, "init", "-q"]);

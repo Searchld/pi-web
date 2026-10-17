@@ -9,7 +9,8 @@ import {
   type SubagentWritableScope,
 } from "@/lib/subagents";
 import { writeDisabledBuiltInSubagent } from "@/lib/subagent-settings";
-import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,14 @@ export async function PUT(req: Request) {
       profile?: Omit<SubagentProfile, "scope" | "filePath">;
     };
     const cwd = await validateCwd(body.cwd);
-    const scope = validateScope(body.scope);
+    const requestedScope = validateScope(body.scope);
+    // 企业用户只能在自己的固定工作区创建或覆盖子代理，不能写入共享的全局目录。
+    const isRuoyiProjectProfile = isRuoyiIntegrationEnabled();
+    if (isRuoyiProjectProfile) {
+      const trustDenied = await trustVerifiedRuoyiWorkspace(req, cwd);
+      if (trustDenied) return trustDenied;
+    }
+    const scope = isRuoyiProjectProfile ? "project" : requestedScope;
     if (!body.profile || typeof body.profile.name !== "string") {
       return NextResponse.json({ error: "profile required" }, { status: 400 });
     }

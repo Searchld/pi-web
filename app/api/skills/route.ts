@@ -7,7 +7,7 @@ import type { SkillToggleResult } from "@/lib/api-types";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { setDisableModelInvocation } from "@/lib/skill-frontmatter";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,8 @@ export async function GET(req: Request) {
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
+    const trustDenied = await trustVerifiedRuoyiWorkspace(req, cwd);
+    if (trustDenied) return trustDenied;
     return NextResponse.json(await loadSkillsWithInstallInfo(cwd));
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

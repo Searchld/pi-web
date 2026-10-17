@@ -118,15 +118,29 @@ export function mayReadProjectConfigNow(cwd: string, agentDir: string): boolean 
   }
 }
 
-export function trustProject(cwd: string, agentDir: string): ProjectTrustStatus {
+/**
+ * 为当前项目写入信任决定。受控工作区可在资源尚未出现前预先写入，避免首次
+ * 安装项目资源后被自己的新文件锁进未信任状态。
+ */
+export function trustProject(
+  cwd: string,
+  agentDir: string,
+  options: { allowFresh?: boolean } = {},
+): ProjectTrustStatus {
   const status = getProjectTrustStatus(cwd, agentDir);
-  if (!status.requiresTrust) return status;
+  if (!status.requiresTrust && !options.allowFresh) return status;
 
   new ProjectTrustStore(agentDir).set(cwd, true);
   // Built from what was just written, not read back: a second read can fail
   // (the lock held past the store's wait), and the route would then report a
   // decision already on disk as a failure and skip rebuilding the cwd's wrappers.
-  return { requiresTrust: true, trusted: true, decision: true, decisionPath: trustKeyPath(cwd), inherited: false };
+  return {
+    requiresTrust: status.requiresTrust,
+    trusted: true,
+    decision: true,
+    decisionPath: trustKeyPath(cwd),
+    inherited: false,
+  };
 }
 
 /**

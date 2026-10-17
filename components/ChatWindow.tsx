@@ -106,6 +106,10 @@ const BUSINESS_STARTER_PROMPT_KEYS = [
   "chat.businessStarterAlerts",
   "chat.businessStarterDevices",
   "chat.businessStarterInlet",
+  "chat.businessStarterUnhandledAlerts",
+  "chat.businessStarterOfflineDevices",
+  "chat.businessStarterAlertTrend",
+  "chat.businessStarterProductionOverview",
 ] as const;
 
 let appUpdateCheck: Promise<AppUpdateResponse | null> | null = null;

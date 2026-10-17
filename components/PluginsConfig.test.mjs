@@ -6,7 +6,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { filteredPackagesKeptOn, packagesToSwitch } = await jiti.import("./PluginsConfig.tsx");
+const { defaultPluginInstallScope, filteredPackagesKeptOn, packagesToSwitch } = await jiti.import("./PluginsConfig.tsx");
 
 const packages = [
   { source: "npm:global-on", scope: "global", disabled: false, filtered: false },
@@ -25,4 +25,9 @@ test("switching a group off leaves an enabled filtered package on and says so", 
   const withFiltered = [...packages, { source: "npm:filtered-on", scope: "global", disabled: false, filtered: true }];
   assert.deepEqual(packagesToSwitch(withFiltered, false).map((pkg) => pkg.source), ["npm:global-on", "npm:project-on"]);
   assert.deepEqual(filteredPackagesKeptOn(withFiltered).map((pkg) => pkg.source), ["npm:filtered-on"]);
+});
+
+test("RuoYi plugin installs default to the project scope", () => {
+  assert.equal(defaultPluginInstallScope(true), "project");
+  assert.equal(defaultPluginInstallScope(false), "global");
 });

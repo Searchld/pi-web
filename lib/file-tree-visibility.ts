@@ -6,20 +6,20 @@ import { execFile } from "child_process";
 // Inside a Git work tree the repository decides: an entry is hidden only when
 // Git ignores it, so a tracked `build/` or `dist/` stays browsable (#677).
 // Where Git has no view of a directory, a fixed list of conventionally
-// generated names stands in for a .gitignore. `.git` and Finder's `.DS_Store`
-// are hidden either way, as in VS Code's default excludes.
+// generated names stands in for a .gitignore. Pi's `.pi`, Git's `.git` and
+// Finder's `.DS_Store` are hidden either way, as in VS Code's default excludes.
 //
 // This is visibility only. Hidden entries stay readable through /api/files,
 // which authorizes by allowed root and never consults this module. The
 // explorer's "show hidden" switch lists the Git-ignored and name-list entries
-// with their reason; `.git` and `.DS_Store` stay out either way.
+// with their reason; `.pi`, `.git` and `.DS_Store` stay out either way.
 // ============================================================================
 
 /**
  * Why an entry is left out of the default listing:
  * - `ignored`: the Git work tree ignores it.
  * - `excluded`: the name list, where Git has no view of the directory.
- * - `always`: `.git` and `.DS_Store`, never listed.
+ * - `always`: `.pi`, `.git` and `.DS_Store`, never listed.
  */
 export type FileTreeHiddenReason = "ignored" | "excluded" | "always";
 
@@ -31,8 +31,8 @@ const HIDDEN_NAMES = new Set([
 
 const HIDDEN_SUFFIXES = [".pyc"];
 
-// Never worth listing, whatever a repository says about them.
-const ALWAYS_HIDDEN_NAMES = new Set([".git", ".DS_Store"]);
+// Pi 的项目配置与 Git 元数据都不应由文件树直接修改。
+const ALWAYS_HIDDEN_NAMES = new Set([".pi", ".git", ".DS_Store"]);
 
 // The listing waits on git, so a slow one degrades to the name list rather
 // than stalling the tree.

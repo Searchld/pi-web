@@ -13,7 +13,8 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
-import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
+import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 import { invalidateModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import type {
   PluginDiagnostic,
@@ -450,6 +451,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
+    // 企业用户各自拥有固定工作区，不能把新插件安装到所有用户共用的全局目录。
+    const isRuoyiProjectInstall = isRuoyiIntegrationEnabled() && body.action === "install";
+    if (isRuoyiProjectInstall) {
+      const trustDenied = await trustVerifiedRuoyiWorkspace(req, body.cwd);
+      if (trustDenied) return trustDenied;
+    }
+
     const agentDir = getAgentDir();
     const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
     const settingsManager = SettingsManager.create(body.cwd, agentDir, {
@@ -473,7 +481,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ...(await readPlugins(body.cwd)), results } satisfies PluginsBulkResponse);
     }
 
-    const scope = readScope(body.scope);
+    const scope = isRuoyiProjectInstall ? "project" : readScope(body.scope);
     if (scope === "project" && !projectTrust.trusted) {
       return NextResponse.json(
         { error: "Project resources must be trusted before modifying project plugins" },

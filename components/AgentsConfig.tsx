@@ -45,6 +45,10 @@ const THINKING_OPTIONS = ["", "off", "minimal", "low", "medium", "high", "xhigh"
 type EditableProfile = Omit<SubagentProfile, "scope" | "filePath">;
 type EditorMode = "view" | "edit" | "create";
 
+export function defaultSubagentProfileScope(isRuoyiIntegration: boolean): SubagentWritableScope {
+  return isRuoyiIntegration ? "project" : "global";
+}
+
 const EMPTY_PROFILE: EditableProfile = {
   name: "custom-agent",
   displayName: "Custom agent",
@@ -147,6 +151,33 @@ function displayProfilePath(profile: SubagentProfile, cwd: string): string | nul
     : shortenPath(profile.filePath);
 }
 
+const BUILTIN_PROFILE_TEXT_KEYS: Readonly<Record<string, Readonly<Record<"label" | "description" | "prompt", string>>>> = {
+  "general-purpose": {
+    label: "agents.builtin.generalPurpose",
+    description: "agents.builtin.generalPurposeDescription",
+    prompt: "agents.builtin.generalPurposePrompt",
+  },
+  explore: {
+    label: "agents.builtin.explore",
+    description: "agents.builtin.exploreDescription",
+    prompt: "agents.builtin.explorePrompt",
+  },
+  plan: {
+    label: "agents.builtin.plan",
+    description: "agents.builtin.planDescription",
+    prompt: "agents.builtin.planPrompt",
+  },
+};
+
+function builtInProfileText(profile: SubagentProfile, field: "label" | "description" | "prompt", fallback: string, t: (key: string) => string): string {
+  const key = profile.scope === "builtin" ? BUILTIN_PROFILE_TEXT_KEYS[profile.name]?.[field] : undefined;
+  return key ? t(key) : fallback;
+}
+
+function profileLabel(profile: SubagentProfile, t: (key: string) => string): string {
+  return builtInProfileText(profile, "label", profile.displayName, t);
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <ConfigField label={label}>{children}</ConfigField>;
 }
@@ -167,6 +198,7 @@ export function AgentsConfig({
   onReloaded,
   embedded = false,
   trust,
+  isRuoyiIntegration = false,
 }: {
   cwd: string;
   sessionId?: string | null;
@@ -175,6 +207,7 @@ export function AgentsConfig({
   embedded?: boolean;
   /** The page's trust status for `cwd`; a new decision loads the model list again. */
   trust?: ProjectTrustStatus | null;
+  isRuoyiIntegration?: boolean;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -185,7 +218,7 @@ export function AgentsConfig({
   const [selectedKey, setSelectedKey] = useState<string | null>(() => getLastSettingsSelection("agents", cwd));
   const [draft, setDraft] = useState<EditableProfile>(EMPTY_PROFILE);
   const [mode, setMode] = useState<EditorMode>("view");
-  const [targetScope, setTargetScope] = useState<SubagentWritableScope>("global");
+  const [targetScope, setTargetScope] = useState<SubagentWritableScope>(() => defaultSubagentProfileScope(isRuoyiIntegration));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -313,7 +346,7 @@ export function AgentsConfig({
     setSelectedKey(null);
     setDraft({ ...EMPTY_PROFILE, name, displayName: name });
     setMode("create");
-    setTargetScope("global");
+    setTargetScope(defaultSubagentProfileScope(isRuoyiIntegration));
     setError(null);
   };
 
@@ -327,7 +360,7 @@ export function AgentsConfig({
       displayName: t("agents.copyName", { name: selected.displayName }),
     });
     setMode("create");
-    setTargetScope(isWritableScope(selected.scope) ? selected.scope : "global");
+    setTargetScope(isRuoyiIntegration ? "project" : isWritableScope(selected.scope) ? selected.scope : "global");
     setError(null);
   };
 
@@ -376,6 +409,7 @@ export function AgentsConfig({
 
   const editing = mode !== "view";
   const creating = mode === "create";
+  const availableTargetScopes: readonly SubagentWritableScope[] = isRuoyiIntegration ? ["project"] : ["global", "project"];
   const disabled = !editing || saving || toggling;
   const displayedScope = creating ? targetScope : selected?.scope;
   const displayedPath = creating
@@ -542,7 +576,7 @@ export function AgentsConfig({
                           onClick={() => selectProfile(profile)}
                         >
                           <ConfigStatusDot active={profile.enabled} />
-                          <ConfigSidebarText className={`is-grow${profile.enabled ? "" : " is-muted"}`}>{profile.displayName}</ConfigSidebarText>
+                          <ConfigSidebarText className={`is-grow${profile.enabled ? "" : " is-muted"}`}>{profileLabel(profile, t)}</ConfigSidebarText>
                           {overridden && <span className="agents-overridden-label">{t("agents.overridden")}</span>}
                         </ConfigSidebarItem>
                       );
@@ -572,7 +606,7 @@ export function AgentsConfig({
                         <ConfigSaveTarget
                           value={targetScope}
                           label={t("config.saveTo")}
-                          options={(["global", "project"] as const).map((scope) => ({
+                          options={availableTargetScopes.map((scope) => ({
                             value: scope,
                             label: t(`agents.scope.${scope}`),
                             disabled: saving,
@@ -609,14 +643,14 @@ export function AgentsConfig({
                       )}
                     </Field>
                     <Field label={t("agents.displayName")}>
-                      <input aria-label={t("agents.displayName")} value={draft.displayName} disabled={disabled} onChange={(event) => update("displayName", event.target.value)} style={controlStyle} />
+                      <input aria-label={t("agents.displayName")} value={selected?.scope === "builtin" ? profileLabel(selected, t) : draft.displayName} disabled={disabled} onChange={(event) => update("displayName", event.target.value)} style={controlStyle} />
                     </Field>
                   </div>
                   <Field label={t("agents.description")}>
-                    <input aria-label={t("agents.description")} value={draft.description} disabled={disabled} onChange={(event) => update("description", event.target.value)} style={controlStyle} />
+                    <input aria-label={t("agents.description")} value={selected?.scope === "builtin" ? builtInProfileText(selected, "description", selected.description, t) : draft.description} disabled={disabled} onChange={(event) => update("description", event.target.value)} style={controlStyle} />
                   </Field>
                   <Field label={t("agents.prompt")}>
-                    <textarea className="agents-system-prompt" aria-label={t("agents.prompt")} value={draft.systemPrompt} disabled={disabled} onChange={(event) => update("systemPrompt", event.target.value)} style={{ ...controlStyle, height: 195, minHeight: 195, maxHeight: "60vh", padding: 9, overflow: "auto", resize: disabled ? "none" : "vertical", lineHeight: 1.5 }} />
+                    <textarea className="agents-system-prompt" aria-label={t("agents.prompt")} value={selected?.scope === "builtin" ? builtInProfileText(selected, "prompt", selected.systemPrompt, t) : draft.systemPrompt} disabled={disabled} onChange={(event) => update("systemPrompt", event.target.value)} style={{ ...controlStyle, height: 195, minHeight: 195, maxHeight: "60vh", padding: 9, overflow: "auto", resize: disabled ? "none" : "vertical", lineHeight: 1.5 }} />
                   </Field>
 
                   <Field label={t("agents.tools")}>

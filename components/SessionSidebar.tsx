@@ -209,6 +209,9 @@ interface Props {
   onNewSessionContextChange?: (context: NewSessionContext | null) => void;
   /** 宿主应用固定用户工作目录时，隐藏整个工作目录选择器。 */
   hideWorkspacePicker?: boolean;
+  /** RuoYi 将会话栏折叠键放进侧栏标题行；折叠后仍由外层工具栏恢复。 */
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
   initialSessionId?: string | null;
   /** `initialSessionId` is the URL's `?session=`: a toast says so when it is gone. */
   initialSessionLinked?: boolean;
@@ -223,6 +226,8 @@ interface Props {
     projectKey?: string | null,
   ) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
+  /** RuoYi 将文件浏览器放在右侧文件面板，左侧只保留会话。 */
+  filesInRightPanel?: boolean;
   onOpenTerminal?: (cwd: string) => void;
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
@@ -496,7 +501,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, hideWorkspacePicker = false, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, hideWorkspacePicker = false, sidebarOpen = true, onToggleSidebar, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, filesInRightPanel = false }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -563,7 +568,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // browser storage after hydration; the layout's choice is read the same
   // way (useFilesPlacement's server snapshot).
   const filesPlacement = useFilesPlacement();
-  const stacked = !isMobile && filesPlacement === "below";
+  const hasSidebarFiles = !filesInRightPanel;
+  const stacked = hasSidebarFiles && !isMobile && filesPlacement === "below";
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("sessions");
   const [filesCollapsed, setFilesCollapsed] = useState(false);
   const sessionsTabRef = useRef<HTMLButtonElement>(null);
@@ -1432,6 +1438,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // RuoYi 每位用户只有一个服务端固定工作区；不展示项目标题时也不能让旧的
   // 折叠偏好把该工作区的会话一并隐藏。
   const treeGroupExpansion = hideWorkspacePicker ? EMPTY_GROUP_EXPANSION : shownGroupExpansion;
+  // 固定工作区没有项目分组可供翻页，直接列出该用户的全部会话，避免末尾孤立的
+  // “显示更多”。SessionTree 仍通过虚拟列表按需挂载可见行。
+  const treeMoreShown = useMemo(() => {
+    if (!hideWorkspacePicker) return moreShown;
+    return {
+      ...moreShown,
+      [PINNED_MORE_KEY]: Number.MAX_SAFE_INTEGER,
+      ...(currentProjectKey ? { [currentProjectKey]: Number.MAX_SAFE_INTEGER } : {}),
+    };
+  }, [currentProjectKey, hideWorkspacePicker, moreShown]);
   const model = useMemo(() => buildSessionTree({
     sessions: allSessions,
     uiState,
@@ -1441,9 +1457,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     selectedSessionId,
     currentProject,
     groupExpansion: treeGroupExpansion,
-    moreShown,
+    moreShown: treeMoreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, treeGroupExpansion, moreShown, pinnedCollapsed]);
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, treeGroupExpansion, treeMoreShown, pinnedCollapsed]);
   const sessionTreeRows = hideWorkspacePicker
     ? model.rows.filter((row) => row.kind !== "footer-open" && row.kind !== "group" && row.kind !== "group-empty")
     : model.rows;
@@ -2684,12 +2700,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The toolbar row's search button searches the files on the files tab:
   // the head has no search of its own. Below the sessions it is the
   // sessions' search alone; the files section's header has the files'.
-  const sessionsShown = stacked || sidebarTab === "sessions";
-  const searchesFiles = !stacked && sidebarTab === "files" && explorerCwd !== null;
+  const sessionsShown = !hasSidebarFiles || stacked || sidebarTab === "sessions";
+  const searchesFiles = hasSidebarFiles && !stacked && sidebarTab === "files" && explorerCwd !== null;
   // What the toolbar row's widths depend on: New's label, and the tabs (the
   // chosen tab's label is bolder, the files tab carries the count). The
   // brand's text reports its own changes (fitHeader).
-  const fitHeader = useHeaderFit(headerRef, (stacked
+  const fitHeader = useHeaderFit(headerRef, (stacked || !hasSidebarFiles
     ? ["below", t("sidebar.new")]
     : ["tabs", t("sidebar.tabSessions"), t("sidebar.tabFiles"), t("sidebar.new"), explorerCwd && changesCount > 0 ? changesCount : "", sidebarTab]
   ).join("\n"));
@@ -2798,7 +2814,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   return (
     <div
       ref={setSidebarRoot}
-      className={`session-sidebar${hideWorkspacePicker ? " is-ruoyi-embedded" : ""}${stacked ? " is-files-below" : ""}${stacked && filesCollapsed ? " is-files-collapsed" : ""}${stacked && filesFold.moving ? " is-files-folding" : ""}${toast ? " has-toast" : ""}`}
+      className={`session-sidebar${hideWorkspacePicker ? " is-ruoyi-embedded" : ""}${filesInRightPanel ? " is-files-in-right-panel" : ""}${stacked ? " is-files-below" : ""}${stacked && filesCollapsed ? " is-files-collapsed" : ""}${stacked && filesFold.moving ? " is-files-folding" : ""}${toast ? " has-toast" : ""}`}
       style={{ "--sidebar-files-height": `${filesSizer.width}px` } as CSSProperties}
       onFocus={(event) => { sidebarFocusRef.current = event.target; }}
       onBlur={(event) => { if (event.relatedTarget === null && !document.hasFocus()) return; if (!event.currentTarget.contains(event.relatedTarget)) sidebarFocusRef.current = null; }}
@@ -2828,8 +2844,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           stands there (the panel's anchor, the versions on a click), and
           the search is the sessions'. */}
       <div ref={headerRef} className="sidebar-header">
-        {stacked && <PiWebTitle onWidthChange={fitHeader} brandText={hideWorkspacePicker ? "Web Agent" : undefined} />}
-        {!stacked && (
+        {(stacked || !hasSidebarFiles) && <PiWebTitle onWidthChange={fitHeader} brandText={hideWorkspacePicker ? "Web Agent" : undefined} />}
+        {!stacked && hasSidebarFiles && (
           <div className="sidebar-tabs-list" role="tablist" aria-label={t("sidebar.tabsLabel")}>
             <button
               ref={sessionsTabRef}
@@ -2866,6 +2882,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         )}
         <span className="sidebar-header-spacer" />
+        {hideWorkspacePicker && onToggleSidebar && (
+          <button
+            type="button"
+            className="sidebar-collapse-toggle"
+            onClick={onToggleSidebar}
+            title={t("sidebar.hide")}
+            aria-label={t("sidebar.hide")}
+            aria-controls="session-sidebar"
+            aria-pressed={sidebarOpen}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+            </svg>
+          </button>
+        )}
+        {!hideWorkspacePicker && <>
         <button
           type="button"
           className="sidebar-new-button"
@@ -2901,6 +2933,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         >
           <SearchIcon size={16} />
         </button>
+        </>}
       </div>
 
       {/* Sessions: every project's sessions, or the archive. A tab's panel,
@@ -2911,11 +2944,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         role={stacked ? "region" : "tabpanel"}
         aria-label={stacked ? t("sidebar.tabSessions") : undefined}
         aria-labelledby={stacked ? undefined : "session-sidebar-tab-sessions"}
-        hidden={!stacked && sidebarTab !== "sessions"}
+        hidden={hasSidebarFiles && !stacked && sidebarTab !== "sessions"}
         className="sidebar-panel sidebar-sessions-panel"
         onScrollCapture={rememberScroll}
       >
-        {sessionSearchOpen && (
+        {sessionSearchOpen && !hideWorkspacePicker && (
           <div className="sidebar-search">
             <input
               id="session-search-input"
@@ -2939,6 +2972,56 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <SessionSearch
           open={sessionSearchOpen}
           query={sessionSearchQuery}
+          header={hideWorkspacePicker ? <>
+            <div className="ruoyi-recent-toolbar">
+              <span>{t("sidebar.recent")}</span>
+              <div className="ruoyi-recent-actions">
+                <button
+                  type="button"
+                  className="ruoyi-recent-action"
+                  onClick={handleNewSession}
+                  disabled={!selectedCwd}
+                  title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
+                  aria-label={t("sidebar.new")}
+                >
+                  <PlusIcon size={16} />
+                </button>
+                <button
+                  ref={searchButtonRef}
+                  type="button"
+                  className={`ruoyi-recent-action${sessionSearchOpen ? " is-active" : ""}`}
+                  onClick={() => setSessionSearchOpen((open) => !open)}
+                  title={t("sidebar.toggleSessionSearch")}
+                  aria-label={t("sidebar.toggleSessionSearch")}
+                  aria-expanded={sessionSearchOpen}
+                  aria-controls="session-search-input"
+                >
+                  <SearchIcon size={16} />
+                </button>
+              </div>
+            </div>
+            {sessionSearchOpen && (
+              <div className="sidebar-search">
+                <input
+                  id="session-search-input"
+                  type="search"
+                  autoFocus
+                  value={sessionSearchQuery}
+                  maxLength={200}
+                  aria-label={t("sidebar.searchSessions")}
+                  placeholder={t("sidebar.searchSessions")}
+                  onChange={(event) => setSessionSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                      event.stopPropagation();
+                      setSessionSearchQuery("");
+                    }
+                  }}
+                  className="sidebar-search-input"
+                />
+              </div>
+            )}
+          </> : undefined}
           selectedSessionId={selectedSessionId}
           onSelectSession={handleSelectSessionFromList}
           archivedSessionIds={archiveIndex.ids}
@@ -3004,6 +3087,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </SessionSearch>
       </div>
 
+      {hasSidebarFiles && <>
       {/* Below the sessions, the separator: drag, arrows, Home/End, Enter
           or a double-click to reset (useResizablePanel). Only while the
           files section is open and still: a drag never meets the fold's
@@ -3162,6 +3246,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
       </div>
+      </>}
 
       <SidebarMenu
         open={menu !== null}

@@ -6,9 +6,11 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import type { SessionInfo } from "@/lib/types";
 import type { SessionSearchResponse } from "@/lib/session-search";
 
-export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, archivedSessionIds }: {
+export function SessionSearch({ open, query, header, children, selectedSessionId, onSelectSession, archivedSessionIds }: {
   open: boolean;
   query: string;
+  /** 保持在会话结果之上的工具栏；搜索结果替换 children 时仍保留。 */
+  header?: ReactNode;
   children: ReactNode;
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, entryId?: string, blockIndex?: number) => void;
@@ -45,7 +47,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
     };
   }, [open, search]);
 
-  return !open || !search ? children : (
+  const content = !open || !search ? children : (
     <div className="min-h-20 flex-1 overflow-y-auto" aria-busy={!response && !failed}>
       <div role="status" className="px-3 py-2 text-xs text-text-muted">
         {failed ? t("sidebar.sessionSearchFailed") : !response ? t("sidebar.sessionSearching")
@@ -80,4 +82,5 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
       ))}
     </div>
   );
+  return <>{header}{content}</>;
 }
