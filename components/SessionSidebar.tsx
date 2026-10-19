@@ -1461,7 +1461,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     pinnedCollapsed,
   }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, treeGroupExpansion, treeMoreShown, pinnedCollapsed]);
   const sessionTreeRows = hideWorkspacePicker
-    ? model.rows.filter((row) => row.kind !== "footer-open" && row.kind !== "group" && row.kind !== "group-empty")
+    ? model.rows.filter((row) => row.kind !== "footer-open" && row.kind !== "group" && row.kind !== "group-empty" && row.kind !== "pinned-more" && row.kind !== "group-more")
     : model.rows;
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
@@ -2974,31 +2974,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           query={sessionSearchQuery}
           header={hideWorkspacePicker ? <>
             <div className="ruoyi-recent-toolbar">
-              <span>{t("sidebar.recent")}</span>
-              <div className="ruoyi-recent-actions">
-                <button
-                  type="button"
-                  className="ruoyi-recent-action"
-                  onClick={handleNewSession}
-                  disabled={!selectedCwd}
-                  title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
-                  aria-label={t("sidebar.new")}
-                >
-                  <PlusIcon size={16} />
-                </button>
-                <button
-                  ref={searchButtonRef}
-                  type="button"
-                  className={`ruoyi-recent-action${sessionSearchOpen ? " is-active" : ""}`}
-                  onClick={() => setSessionSearchOpen((open) => !open)}
-                  title={t("sidebar.toggleSessionSearch")}
-                  aria-label={t("sidebar.toggleSessionSearch")}
-                  aria-expanded={sessionSearchOpen}
-                  aria-controls="session-search-input"
-                >
-                  <SearchIcon size={16} />
-                </button>
-              </div>
+              <button
+                type="button"
+                className="ruoyi-new-chat"
+                onClick={handleNewSession}
+                disabled={!selectedCwd}
+              >
+                <PlusIcon size={18} />
+                <span>{t("sidebar.newChat")}</span>
+              </button>
+              <button
+                ref={searchButtonRef}
+                type="button"
+                className={`ruoyi-recent-action${sessionSearchOpen ? " is-active" : ""}`}
+                onClick={() => setSessionSearchOpen((open) => !open)}
+                title={t("sidebar.toggleSessionSearch")}
+                aria-label={t("sidebar.toggleSessionSearch")}
+                aria-expanded={sessionSearchOpen}
+                aria-controls="session-search-input"
+              >
+                <SearchIcon size={16} />
+              </button>
             </div>
             {sessionSearchOpen && (
               <div className="sidebar-search">
@@ -3035,6 +3031,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <SessionTree
                 {...treeProps}
                 rows={sessionTreeRows}
+                timeGroupRecent={hideWorkspacePicker}
                 emptyLabel={t("sidebar.noSessions")}
                 reveal={treeReveal}
                 onRevealHandled={handleRevealHandled}

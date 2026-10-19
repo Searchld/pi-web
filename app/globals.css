@@ -314,6 +314,8 @@ html.dark .qm-art-shell,
 .qm-art-topbar {
   background: var(--bg) !important;
   box-shadow: inset 0 -1px 0 var(--border);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .qm-art-topbar > div {
@@ -2000,6 +2002,53 @@ pre, code {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 20px;
+}
+
+.qm-business-starter-more {
+  flex-basis: 100%;
+}
+
+.qm-business-starter-more summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+
+.qm-business-starter-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.qm-business-starter-more summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.qm-business-starter-more[open] summary::after {
+  transform: rotate(225deg);
+}
+
+.qm-business-starter-more summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.qm-business-starter-more-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .qm-business-idle-demo {

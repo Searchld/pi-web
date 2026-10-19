@@ -742,9 +742,9 @@ test("the footer opens the project list in the files; fixed workspaces remove it
   assert.match(source, /const treeGroupExpansion = hideWorkspacePicker \? EMPTY_GROUP_EXPANSION : shownGroupExpansion;/);
   assert.match(source, /const treeMoreShown = useMemo\(\(\) => \{[\s\S]*?if \(!hideWorkspacePicker\) return moreShown;[\s\S]*?\[PINNED_MORE_KEY\]: Number\.MAX_SAFE_INTEGER,[\s\S]*?\[currentProjectKey\]: Number\.MAX_SAFE_INTEGER/);
   assert.match(source, /groupExpansion: treeGroupExpansion,\s*moreShown: treeMoreShown,/);
-  assert.match(source, /const sessionTreeRows = hideWorkspacePicker\s*\? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open" && row\.kind !== "group" && row\.kind !== "group-empty"\)\s*: model\.rows;/);
-  assert.match(source, /<div className="ruoyi-recent-toolbar">[\s\S]*?\{t\("sidebar\.recent"\)\}[\s\S]*?onClick=\{handleNewSession\}[\s\S]*?setSessionSearchOpen\(\(open\) => !open\)/);
-  assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionTreeRows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
+  assert.match(source, /const sessionTreeRows = hideWorkspacePicker\s*\? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open" && row\.kind !== "group" && row\.kind !== "group-empty" && row\.kind !== "pinned-more" && row\.kind !== "group-more"\)\s*: model\.rows;/);
+  assert.match(source, /<div className="ruoyi-recent-toolbar">[\s\S]*?className="ruoyi-new-chat"[\s\S]*?onClick=\{handleNewSession\}[\s\S]*?\{t\("sidebar\.newChat"\)\}[\s\S]*?setSessionSearchOpen\(\(open\) => !open\)/);
+  assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionTreeRows\}\s+timeGroupRecent=\{hideWorkspacePicker\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
   assert.match(source, /<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{archiveRows\}\s+emptyLabel=\{t\("sidebar\.noArchived"\)\}\s+reveal=\{archiveReveal\}\s+onRevealHandled=\{handleArchiveRevealHandled\}\s+\/>/);
   assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
   assert.match(callbackBody("handleTogglePinned"), /setPinnedCollapsed\(next\);\s*savePinnedCollapsed\(next\);/);

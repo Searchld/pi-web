@@ -25,7 +25,7 @@ import { workspaceKeyOf } from "./workspace-memory";
 export type SidebarLayout = "desktop" | "mobile";
 export type SidebarRowKind =
   | "pinned-header" | "session" | "pinned-more" | "group" | "group-more" | "group-empty"
-  | "spacer" | "footer-open" | "footer-archived" | "archive-group";
+  | "spacer" | "time-group" | "footer-open" | "footer-archived" | "archive-group";
 
 /**
  * Per-kind row heights: one rhythm. Session rows, the section headers (a
@@ -36,14 +36,14 @@ export type SidebarRowKind =
  * footer; groups themselves sit right on each other, with none between them.
  */
 export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, number>> = {
-  desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
-  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
+  desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "time-group": 28, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
+  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "time-group": 44, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
 };
 
 /** RuoYi 嵌入态使用更舒展的桌面侧栏节奏，仍保留桌面交互逻辑。 */
 export const RUOYI_SIDEBAR_ROW_HEIGHTS: Record<SidebarRowKind, number> = {
   "pinned-header": 34, session: 60, "pinned-more": 30, group: 34, "group-more": 30,
-  "group-empty": 34, spacer: 10, "footer-open": 34, "footer-archived": 34, "archive-group": 34,
+  "group-empty": 34, spacer: 10, "time-group": 22, "footer-open": 34, "footer-archived": 34, "archive-group": 34,
 };
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
@@ -67,9 +67,40 @@ export type SidebarRow =
   | { kind: "group-more"; key: string; projectKey: string; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group-empty"; key: string; project: SidebarProject }
   | { kind: "spacer"; key: "pinned-spacer" | "footer-spacer" }
+  | { kind: "time-group"; key: string; group: RecentTimeGroup }
   | { kind: "footer-open"; key: "footer-open" }
   | { kind: "footer-archived"; key: "footer-archived"; count: number }
   | { kind: "archive-group"; key: string; project: SidebarProject; count: number; expanded: boolean };
+
+export type RecentTimeGroup = "today" | "seven-days" | "earlier";
+
+/** RuoYi 固定工作区的最近会话按本地日历日分段，普通项目树仍保持原有项目结构。 */
+export function addRecentTimeGroups(rows: readonly SidebarRow[], now = Date.now()): SidebarRow[] {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  const grouped: SidebarRow[] = [];
+  let previous: RecentTimeGroup | null = null;
+
+  for (const row of rows) {
+    if (row.kind !== "session") {
+      // 固定工作区不再展示项目和页脚，也不保留它们之间的占位行。
+      if (row.kind !== "spacer") grouped.push(row);
+      continue;
+    }
+    const modified = new Date(row.family.latestModified).getTime();
+    const group: RecentTimeGroup = modified >= today.getTime()
+      ? "today"
+      : modified >= sevenDaysAgo.getTime() ? "seven-days" : "earlier";
+    if (group !== previous) {
+      grouped.push({ kind: "time-group", key: `time:${group}:${row.key}`, group });
+      previous = group;
+    }
+    grouped.push(row);
+  }
+  return grouped;
+}
 
 export interface SessionTreeInput {
   /** The full catalog (allSessions), subagents included. */

@@ -102,12 +102,14 @@ interface Props {
 }
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
-const BUSINESS_STARTER_PROMPT_KEYS = [
+const BUSINESS_PRIMARY_STARTER_PROMPT_KEYS = [
   "chat.businessStarterAlerts",
-  "chat.businessStarterDevices",
-  "chat.businessStarterInlet",
   "chat.businessStarterUnhandledAlerts",
+  "chat.businessStarterDevices",
   "chat.businessStarterOfflineDevices",
+] as const;
+const BUSINESS_MORE_STARTER_PROMPT_KEYS = [
+  "chat.businessStarterInlet",
   "chat.businessStarterAlertTrend",
   "chat.businessStarterProductionOverview",
 ] as const;
@@ -1099,11 +1101,21 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               </div>
               <BusinessIdleDemo />
               <div className="qm-business-starter-prompts" aria-label={t("chat.businessStarterTitle")}>
-                {BUSINESS_STARTER_PROMPT_KEYS.map((key) => (
+                {BUSINESS_PRIMARY_STARTER_PROMPT_KEYS.map((key) => (
                   <button key={key} type="button" onClick={() => chatInputRef?.current?.replaceText(t(key))}>
                     {t(key)}
                   </button>
                 ))}
+                <details className="qm-business-starter-more">
+                  <summary>{t("chat.businessStarterMore")}</summary>
+                  <div className="qm-business-starter-more-options">
+                    {BUSINESS_MORE_STARTER_PROMPT_KEYS.map((key) => (
+                      <button key={key} type="button" onClick={() => chatInputRef?.current?.replaceText(t(key))}>
+                        {t(key)}
+                      </button>
+                    ))}
+                  </div>
+                </details>
               </div>
             </div>
           </div>

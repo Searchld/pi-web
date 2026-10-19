@@ -879,6 +879,15 @@ a.session-tree-main {
   font-size: 12px;
 }
 
+/* 固定工作区的最近会话以时间段分隔，不额外添加卡片或边框。 */
+.session-tree.is-roomy .session-tree-time-group {
+  align-items: flex-end;
+  padding: 0 12px 3px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .session-sidebar.is-ruoyi-embedded .session-tree-session {
   padding-right: 8px;
   padding-left: 22px;
@@ -938,13 +947,24 @@ a.session-tree-main {
 }
 
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover {
-  background: var(--bg-hover);
+  background: transparent;
   box-shadow: none;
 }
 
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected {
-  background: var(--bg-hover);
+  background: transparent;
   box-shadow: none;
+}
+
+/* 行高保留底部 4px 的呼吸间隙；底色由伪元素覆盖整行，归档和菜单键也在卡片内。 */
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover::after,
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 4px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  pointer-events: none;
 }
 
 .session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected:not(.is-confirming)::before {
@@ -968,6 +988,12 @@ a.session-tree-main {
   background: transparent;
 }
 
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-main,
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-actions {
+  position: relative;
+  z-index: 1;
+}
+
 .session-tree.is-roomy .session-tree-card-content {
   display: flex;
   flex: 1;
@@ -987,26 +1013,51 @@ a.session-tree-main {
   display: flex;
   flex: none;
   align-items: center;
-  justify-content: space-between;
   height: 40px;
-  padding: 0 12px 0 16px;
-  color: var(--text-dim);
+  gap: 4px;
+  padding: 4px 12px;
+  color: var(--text);
   font-size: 13px;
   font-weight: 600;
 }
 
-.ruoyi-recent-actions {
+.ruoyi-new-chat {
   display: flex;
+  flex: 1;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.ruoyi-new-chat:hover,
+.ruoyi-new-chat:focus-visible {
+  background: var(--bg-selected);
+  outline: none;
+}
+
+.ruoyi-new-chat:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.ruoyi-new-chat:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .ruoyi-recent-action {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 6px;

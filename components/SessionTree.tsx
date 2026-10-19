@@ -20,6 +20,7 @@ import { MAX_PROJECT_NAME_LENGTH, type ProjectMovePosition } from "@/lib/session
 import {
   PINNED_MORE_KEY,
   RUOYI_SIDEBAR_ROW_HEIGHTS,
+  addRecentTimeGroups,
   getRowOffsets,
   getVisibleRowIndices,
   revealScrollTop,
@@ -96,6 +97,8 @@ export interface SessionTreeProps {
   layout: SidebarLayout;
   /** RuoYi 嵌入态的桌面侧栏使用更大的文字和行距。 */
   roomy?: boolean;
+  /** RuoYi 固定工作区的最近会话按时间段插入轻量标题。 */
+  timeGroupRecent?: boolean;
   /** Shown above the footer rows when there are no session/group rows; null = none. */
   emptyLabel: string | null;
   /** Shows t("sidebar.loading") instead of rows. */
@@ -175,6 +178,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     rows,
     layout,
     roomy = false,
+    timeGroupRecent = false,
     emptyLabel,
     loading,
     error,
@@ -200,6 +204,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const scrollFrameRef = useRef<number | null>(null);
+  const displayedRows = useMemo(() => (timeGroupRecent ? addRecentTimeGroups(rows, now) : rows), [now, rows, timeGroupRecent]);
 
   const handleScroll = useCallback(() => {
     if (scrollFrameRef.current !== null) return;
@@ -261,19 +266,19 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     setFocusedRowKey(null);
   }, []);
 
-  const offsets = useMemo(() => getRowOffsets(rows, layout, roomy ? RUOYI_SIDEBAR_ROW_HEIGHTS : undefined), [rows, layout, roomy]);
+  const offsets = useMemo(() => getRowOffsets(displayedRows, layout, roomy ? RUOYI_SIDEBAR_ROW_HEIGHTS : undefined), [displayedRows, layout, roomy]);
   // A group header can be dragged to another place in its band (pinned
   // projects, or the others) when the band has another group.
   const canMoveGroups = Boolean(props.onMoveGroup);
   const groupsPerBand = useMemo(() => {
     const count = { pinned: 0, other: 0 };
-    for (const row of rows) {
+    for (const row of displayedRows) {
       if (row.kind === "group") count[row.project.pinned ? "pinned" : "other"]++;
     }
     return count;
-  }, [rows]);
+  }, [displayedRows]);
   const groupDrag = useGroupDrag({
-    rows,
+    rows: displayedRows,
     offsets,
     layout,
     enabled: canMoveGroups && !loading,
@@ -293,13 +298,13 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const pendingRevealKey = pendingReveal?.rowKey ?? null;
   const keepMounted = useMemo(() => {
     const indices: number[] = [];
-    rows.forEach((row, index) => {
+    displayedRows.forEach((row, index) => {
       if (row.key === focusedRowKey || row.key === activeMenuRowKey || row.key === pendingRevealKey || row.key === draggedRowKey) indices.push(index);
       else if (row.kind === "session" && (row.family.root.id === renamingRootId || row.family.root.id === confirmDeleteRootId)) indices.push(index);
       else if (row.kind === "group" && row.project.key === renamingProjectKey) indices.push(index);
     });
     return indices;
-  }, [rows, focusedRowKey, activeMenuRowKey, pendingRevealKey, draggedRowKey, renamingRootId, renamingProjectKey, confirmDeleteRootId]);
+  }, [displayedRows, focusedRowKey, activeMenuRowKey, pendingRevealKey, draggedRowKey, renamingRootId, renamingProjectKey, confirmDeleteRootId]);
   const visibleIndices = useMemo(
     () => (loading ? [] : getVisibleRowIndices(offsets, scrollTop, viewportHeight, OVERSCAN_PX, keepMounted)),
     [loading, offsets, scrollTop, viewportHeight, keepMounted],
@@ -334,8 +339,8 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     if (!pending) return;
     pendingMoreRef.current = null;
     const element = scrollRef.current;
-    let index = rows.findIndex((row) => row.key === pending.rowKey);
-    if (index < 0) index = rows.findIndex((row) => row.key === pending.fallbackKey);
+    let index = displayedRows.findIndex((row) => row.key === pending.rowKey);
+    if (index < 0) index = displayedRows.findIndex((row) => row.key === pending.fallbackKey);
     if (pending.scroll && element && index >= 0) {
       const next = revealScrollTop(offsets, index, element.scrollTop, element.clientHeight);
       if (next !== null) element.scrollTop = next;
@@ -343,7 +348,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
       setScrollTop(element.scrollTop);
     }
     if (pending.focus) pendingFocusRef.current = { rowKey: pending.rowKey, fallbackKey: pending.fallbackKey, tries: 0 };
-  }, [rows, offsets]);
+  }, [displayedRows, offsets]);
   // A reveal request: scrolled to once its row is in the rows (it is kept
   // mounted meanwhile, so focus can go to it in the same commit), or dropped.
   // Its age is checked on every look, so a late one is dropped even when its
@@ -351,7 +356,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const revealMissesRef = useRef<RevealMisses | null>(null);
   useLayoutEffect(() => {
     if (!pendingReveal) return;
-    const index = rows.findIndex((row) => row.key === pendingReveal.rowKey);
+    const index = displayedRows.findIndex((row) => row.key === pendingReveal.rowKey);
     const step = revealStep(revealMissesRef.current, pendingReveal, index >= 0, Date.now());
     revealMissesRef.current = step.misses;
     if (step.action === "wait") return;
@@ -369,7 +374,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     }
     setHandledRevealId(pendingReveal.id);
     handlersRef.current.onRevealHandled?.(pendingReveal.id);
-  }, [pendingReveal, rows, offsets]);
+  }, [pendingReveal, displayedRows, offsets]);
   useLayoutEffect(() => {
     const target = pendingFocusRef.current;
     if (!target) return;
@@ -395,7 +400,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     }
   }, [visibleIndices]);
 
-  const hasTreeRows = rows.some((row) => row.kind === "session" || row.kind === "group");
+  const hasTreeRows = displayedRows.some((row) => row.kind === "session" || row.kind === "group");
   const showEmpty = !loading && !error && emptyLabel !== null && !hasTreeRows;
   // While dragging: the group's block is dimmed in place (groups never fold
   // up under the pointer), a line marks the drop, and a pill with the
@@ -405,7 +410,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const dragSource = dragView?.source ?? null;
   const dropLineY = dragView?.drop?.lineY ?? null;
   const ghostProject = dragView?.phase === "dragging"
-    ? rows.find((row): row is Extract<SidebarRow, { kind: "group" }> => row.kind === "group" && row.project.key === dragView.projectKey)?.project ?? null
+    ? displayedRows.find((row): row is Extract<SidebarRow, { kind: "group" }> => row.kind === "group" && row.project.key === dragView.projectKey)?.project ?? null
     : null;
 
   return (
@@ -423,9 +428,9 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
         onClickCapture={groupDrag.onClickCapture}
       >
         {!loading && (
-          <div ref={innerRef} className="session-tree-inner" style={{ height: offsets[rows.length] }}>
+          <div ref={innerRef} className="session-tree-inner" style={{ height: offsets[displayedRows.length] }}>
             {visibleIndices.map((index) => {
-              const row = rows[index];
+              const row = displayedRows[index];
               if (row.kind === "spacer") return null;
               const top = offsets[index];
               const height = offsets[index + 1] - top;
@@ -1006,6 +1011,12 @@ const PlainRowView = memo(function PlainRowView({
   const style = rowStyle(top, height);
 
   switch (row.kind) {
+    case "time-group": {
+      const label = row.group === "today"
+        ? t("sidebar.today")
+        : row.group === "seven-days" ? t("sidebar.recentSevenDays") : t("sidebar.earlier");
+      return <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}>{label}</div>;
+    }
     case "pinned-header":
       return (
         <div className="session-tree-row session-tree-pinned-header" style={style} data-row-key={row.key}>
