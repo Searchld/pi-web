@@ -412,6 +412,8 @@ export function AgentsConfig({
   const availableTargetScopes: readonly SubagentWritableScope[] = isRuoyiIntegration ? ["project"] : ["global", "project"];
   const disabled = !editing || saving || toggling;
   const displayedScope = creating ? targetScope : selected?.scope;
+  // RuoYi 的可写 profile 只能落在当前用户固定项目目录，不重复展示范围和路径。
+  const hideFixedProjectTarget = isRuoyiIntegration && (creating || displayedScope === "project");
   const displayedPath = creating
     ? targetScope === "global"
       ? `~/.pi/agent/agents/${draft.name || "..."}.md`
@@ -602,7 +604,7 @@ export function AgentsConfig({
                   <ConfigDetailHeader>
                     <ConfigDetailHeaderInfo>
                       {/* A new profile chooses its scope where a saved one shows it. */}
-                      {creating ? (
+                      {hideFixedProjectTarget ? null : creating ? (
                         <ConfigSaveTarget
                           value={targetScope}
                           label={t("config.saveTo")}

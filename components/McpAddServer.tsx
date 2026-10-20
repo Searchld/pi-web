@@ -214,16 +214,14 @@ export function McpAddServer({
     <ConfigAddSourcePanel
       title={t("mcp.add.title")}
       catalogs={MCP_CATALOGS}
-      target={
+      target={projectOnly ? null : (
         <ConfigSaveTarget
           value={analysis.scope}
           label={t("config.saveTo")}
-          options={projectOnly
-            ? [{ value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" }]
-            : [
-              { value: "global", label: scopeLabel("global", t) },
-              { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
-            ]}
+          options={[
+            { value: "global", label: scopeLabel("global", t) },
+            { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
+          ]}
           path={displayPath(targetFile)}
           disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
           onChange={(scope) => change({ scope })}
@@ -237,7 +235,7 @@ export function McpAddServer({
             <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayPath(analysis.projectMode.folder) })}</p>
           )}
         </ConfigSaveTarget>
-      }
+      )}
       inputLabel={t("mcp.add.inputLabel")}
       inputId="mcp-add-source"
       placeholder={t("mcp.add.placeholder")}

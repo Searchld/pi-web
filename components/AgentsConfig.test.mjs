@@ -53,6 +53,8 @@ test("RuoYi subagent profiles default to the project scope", () => {
   const defaultScope = vm.runInNewContext(`${code}; defaultSubagentProfileScope`);
   assert.equal(defaultScope(true), "project");
   assert.equal(defaultScope(false), "global");
+  assert.match(source, /const hideFixedProjectTarget = isRuoyiIntegration && \(creating \|\| displayedScope === "project"\);/);
+  assert.match(source, /\{hideFixedProjectTarget \? null : creating \? \(/);
 });
 
 test("built-in profile text is localized without changing profile names", () => {

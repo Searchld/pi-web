@@ -888,6 +888,26 @@ a.session-tree-main {
   font-weight: 600;
 }
 
+.session-tree-time-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.session-tree-time-group-chevron {
+  transition: transform 160ms ease;
+}
+
+.session-tree-time-group-chevron.is-open {
+  transform: rotate(90deg);
+}
+
 .session-sidebar.is-ruoyi-embedded .session-tree-session {
   padding-right: 8px;
   padding-left: 22px;
@@ -946,19 +966,19 @@ a.session-tree-main {
   border-radius: 8px;
 }
 
-.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover {
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover:not(.is-confirming) {
   background: transparent;
   box-shadow: none;
 }
 
-.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected {
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected:not(.is-confirming) {
   background: transparent;
   box-shadow: none;
 }
 
 /* 行高保留底部 4px 的呼吸间隙；底色由伪元素覆盖整行，归档和菜单键也在卡片内。 */
-.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover::after,
-.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected::after {
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session:hover:not(.is-confirming)::after,
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected:not(.is-confirming)::after {
   content: "";
   position: absolute;
   inset: 0 0 4px;
@@ -1084,6 +1104,15 @@ a.session-tree-main {
 
 .session-tree.is-roomy .session-tree-session.is-selected .session-tree-card-content .session-tree-title {
   font-weight: 600;
+}
+
+/* RuoYi 的业务导航使用常规字重；会话清单也保持同一层级，仅当前项稍作强调。 */
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-card-content .session-tree-title {
+  font-weight: 400;
+}
+
+.session-sidebar.is-ruoyi-embedded .session-tree.is-roomy .session-tree-session.is-selected .session-tree-card-content .session-tree-title {
+  font-weight: 500;
 }
 
 .session-tree.is-roomy .session-tree-card-meta {

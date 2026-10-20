@@ -64,6 +64,20 @@ interface FileData {
   truncated: boolean;
 }
 
+function isAuthenticationError(error: string) {
+  return error === "HTTP 401" || error === "Error: HTTP 401";
+}
+
+function AuthenticationExpiredNotice() {
+  const { t } = useI18n();
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, maxWidth: 420, textAlign: "center" }}>
+      <strong style={{ color: "var(--text)", fontSize: 15 }}>{t("files.authExpiredTitle")}</strong>
+      <span style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6 }}>{t("files.authExpiredDescription")}</span>
+    </div>
+  );
+}
+
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
@@ -1409,7 +1423,10 @@ function TextFileViewer({
     const controller = new AbortController();
     fetch(getFileApiUrl(filePath, "download", sourceSessionId), { signal: controller.signal })
       .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          setHtmlFull({ error: `HTTP ${r.status}` });
+          return;
+        }
         setHtmlFull({ text: await r.text() });
       })
       .catch((e) => {
@@ -1616,7 +1633,7 @@ function TextFileViewer({
   if (error && !isDeletedDiff) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13 }}>
-        {error}
+        {isAuthenticationError(error) ? <AuthenticationExpiredNotice /> : error}
       </div>
     );
   }
@@ -1794,8 +1811,10 @@ function TextFileViewer({
         {effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" && data?.truncated && !htmlFull?.text ? (
-          <div style={{ padding: 24, color: "var(--text-dim)", fontSize: 12 }}>
-            {htmlFull?.error ?? t("i18n.loading")}
+          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "var(--text-dim)", fontSize: 12 }}>
+            {htmlFull?.error && isAuthenticationError(htmlFull.error)
+              ? <AuthenticationExpiredNotice />
+              : htmlFull?.error ?? t("i18n.loading")}
           </div>
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

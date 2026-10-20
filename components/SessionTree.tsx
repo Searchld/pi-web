@@ -26,6 +26,7 @@ import {
   revealScrollTop,
   revealStep,
   type RevealMisses,
+  type RecentTimeGroup,
   type SidebarLayout,
   type SidebarProject,
   type SidebarRow,
@@ -99,6 +100,10 @@ export interface SessionTreeProps {
   roomy?: boolean;
   /** RuoYi 固定工作区的最近会话按时间段插入轻量标题。 */
   timeGroupRecent?: boolean;
+  /** RuoYi 最近会话中折叠的历史时间分组。 */
+  collapsedRecentTimeGroups?: ReadonlySet<RecentTimeGroup>;
+  /** 仅切换 RuoYi 的历史时间分组。 */
+  onToggleRecentTimeGroup?(group: Extract<RecentTimeGroup, "seven-days" | "earlier">): void;
   /** Shown above the footer rows when there are no session/group rows; null = none. */
   emptyLabel: string | null;
   /** Shows t("sidebar.loading") instead of rows. */
@@ -179,6 +184,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     layout,
     roomy = false,
     timeGroupRecent = false,
+    collapsedRecentTimeGroups,
     emptyLabel,
     loading,
     error,
@@ -204,7 +210,10 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const scrollFrameRef = useRef<number | null>(null);
-  const displayedRows = useMemo(() => (timeGroupRecent ? addRecentTimeGroups(rows, now) : rows), [now, rows, timeGroupRecent]);
+  const displayedRows = useMemo(
+    () => (timeGroupRecent ? addRecentTimeGroups(rows, now, collapsedRecentTimeGroups) : rows),
+    [collapsedRecentTimeGroups, now, rows, timeGroupRecent],
+  );
 
   const handleScroll = useCallback(() => {
     if (scrollFrameRef.current !== null) return;
@@ -400,7 +409,8 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     }
   }, [visibleIndices]);
 
-  const hasTreeRows = displayedRows.some((row) => row.kind === "session" || row.kind === "group");
+  // 折叠历史时间段时，标题仍在，不应误显示“暂无会话”。
+  const hasTreeRows = (timeGroupRecent ? rows : displayedRows).some((row) => row.kind === "session" || row.kind === "group");
   const showEmpty = !loading && !error && emptyLabel !== null && !hasTreeRows;
   // While dragging: the group's block is dimmed in place (groups never fold
   // up under the pointer), a line marks the drop, and a pill with the
@@ -473,7 +483,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                   />
                 );
               }
-              return <PlainRowView key={row.key} row={row} top={top} height={height} handlers={handlersRef} onMoreAction={handleMoreAction} />;
+              return <PlainRowView key={row.key} row={row} top={top} height={height} handlers={handlersRef} onMoreAction={handleMoreAction} collapsedRecentTimeGroups={collapsedRecentTimeGroups} />;
             })}
             {dragSource && (
               <div
@@ -1000,12 +1010,14 @@ const PlainRowView = memo(function PlainRowView({
   height,
   handlers,
   onMoreAction,
+  collapsedRecentTimeGroups,
 }: {
   row: Exclude<SidebarRow, { kind: "session" | "group" | "archive-group" | "spacer" }>;
   top: number;
   height: number;
   handlers: Handlers;
   onMoreAction: (rowKey: string, key: string, action: "more" | "less", button: HTMLElement) => void;
+  collapsedRecentTimeGroups: ReadonlySet<RecentTimeGroup> | undefined;
 }) {
   const { t } = useI18n();
   const style = rowStyle(top, height);
@@ -1015,7 +1027,24 @@ const PlainRowView = memo(function PlainRowView({
       const label = row.group === "today"
         ? t("sidebar.today")
         : row.group === "seven-days" ? t("sidebar.recentSevenDays") : t("sidebar.earlier");
-      return <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}>{label}</div>;
+      if (row.group === "today") {
+        return <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}>{label}</div>;
+      }
+      const group: Extract<RecentTimeGroup, "seven-days" | "earlier"> = row.group === "seven-days" ? "seven-days" : "earlier";
+      const collapsed = collapsedRecentTimeGroups?.has(group) ?? false;
+      return (
+        <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}>
+          <button
+            type="button"
+            className="session-tree-time-group-toggle"
+            aria-expanded={!collapsed}
+            onClick={() => handlers.current.onToggleRecentTimeGroup?.(group)}
+          >
+            <span>{label}</span>
+            <ChevronIcon size={12} className={`session-tree-time-group-chevron${collapsed ? "" : " is-open"}`} />
+          </button>
+        </div>
+      );
     }
     case "pinned-header":
       return (

@@ -61,6 +61,91 @@ test("matches response model aliases and otherwise includes the provider", () =>
   assert.equal(getModelDisplayName("gateway", "unknown-model", names), "gateway/unknown-model");
 });
 
+test("can hide the model label without hiding the assistant reply", () => {
+  const message = {
+    role: "assistant",
+    provider: "deepseek",
+    model: "deepseek-v4.1-flash",
+    content: [{ type: "text", text: "查询完成。" }],
+  };
+  const html = renderMessage(message, { modelNames: { "deepseek:deepseek-v4.1-flash": "DeepSeek V4.1 Flash" } });
+  const businessHtml = renderMessage(message, { hideModelLabel: true, modelNames: { "deepseek:deepseek-v4.1-flash": "DeepSeek V4.1 Flash" } });
+
+  assert.match(html, /DeepSeek V4\.1 Flash/);
+  assert.doesNotMatch(businessHtml, /DeepSeek V4\.1 Flash/);
+  assert.match(businessHtml, /查询完成。/);
+});
+
+test("adds a read-aloud control below a completed business answer", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "报警查询已完成。" }],
+  }, { businessMode: true, showSpeakButton: true, onSpeakAnswer: () => {} });
+
+  assert.match(html, /aria-label="Read answer aloud"/);
+});
+
+test("adds a branch control below a completed business answer", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "报警查询已完成。" }],
+  }, { businessMode: true, showForkButton: true, entryId: "answer-entry", onFork: () => {} });
+
+  assert.match(html, /aria-label="Branch to new session"/);
+  assert.match(html, />Branch to new session<\/button>/);
+});
+
+test("labels the current Web Agent streaming phase", () => {
+  const thinkingHtml = renderMessage({
+    role: "assistant",
+    content: [{ type: "thinking", thinking: "正在判断查询条件" }],
+  }, { businessMode: true, isStreaming: true });
+  const processingHtml = renderMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", toolCallId: "alarm-query", toolName: "query_alarms", input: {} }],
+  }, { businessMode: true, isStreaming: true });
+
+  assert.match(thinkingHtml, /data-stream-status/);
+  assert.match(thinkingHtml, /Thinking\.\.\./);
+  assert.match(processingHtml, /Processing\.\.\./);
+});
+
+test("renders business tool calls as compact run steps without usage details", () => {
+  const message = {
+    role: "assistant",
+    provider: "deepseek",
+    model: "deepseek-v4.1-flash",
+    content: [{
+      type: "toolCall",
+      toolCallId: "device-status",
+      toolName: "system_business_query_device_status",
+      input: { query: "查看离线设备清单" },
+    }],
+    usage: { input: 236, output: 60, cacheRead: 10_368, cacheWrite: 0, cost: { total: 0.0002 } },
+  };
+  const toolResults = new Map([["device-status", {
+    role: "toolResult",
+    toolCallId: "device-status",
+    toolName: "system_business_query_device_status",
+    content: [],
+  }]]);
+  const html = renderMessage(message, { businessMode: true, hideModelLabel: true, toolResults });
+
+  assert.match(html, /Ran/);
+  assert.match(html, /查看离线设备清单/);
+  assert.match(html, /max-width:min\(640px, 70vw\)/);
+  assert.match(html, /points="3 2 6\.5 5 3 8"/);
+  assert.doesNotMatch(html, /\$0\.0002/);
+});
+
+test("renders expanded business tool parameters as an unframed single line", () => {
+  const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
+  assert.match(source, /const displayedInput = businessMode && !codemode \? formatBusinessToolInput\(inputStr\) : inputStr/);
+  assert.match(source, /background: businessMode \? "transparent" : "var\(--bg-subtle\)"/);
+  assert.match(source, /whiteSpace: businessMode \? "pre" : "pre-wrap"/);
+  assert.match(source, /function formatBusinessToolInput\(input: string\)/);
+});
+
 test("previews the first thinking line and reveals the full text with the saved default", () => {
   const previousWindow = globalThis.window;
   try {
@@ -86,6 +171,20 @@ test("previews the first thinking line and reveals the full text with the saved 
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
   }
+});
+
+test("uses the process chevron rather than the bulb for business thinking", () => {
+  const html = renderToStaticMarkup(React.createElement(
+    I18nProvider,
+    null,
+    React.createElement(ThinkingBlock, {
+      block: { type: "thinking", thinking: "判断报警查询条件" },
+      businessMode: true,
+      blockIndex: 0,
+    }),
+  ));
+
+  assert.match(html, /points="4 2\.5 7\.5 6 4 9\.5"/);
 });
 
 test("renders long expanded thinking in pieces and short thinking as one text node (#1196)", () => {

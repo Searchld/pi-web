@@ -75,7 +75,11 @@ export type SidebarRow =
 export type RecentTimeGroup = "today" | "seven-days" | "earlier";
 
 /** RuoYi 固定工作区的最近会话按本地日历日分段，普通项目树仍保持原有项目结构。 */
-export function addRecentTimeGroups(rows: readonly SidebarRow[], now = Date.now()): SidebarRow[] {
+export function addRecentTimeGroups(
+  rows: readonly SidebarRow[],
+  now = Date.now(),
+  collapsed: ReadonlySet<RecentTimeGroup> = new Set(),
+): SidebarRow[] {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const sevenDaysAgo = new Date(today);
@@ -97,7 +101,7 @@ export function addRecentTimeGroups(rows: readonly SidebarRow[], now = Date.now(
       grouped.push({ kind: "time-group", key: `time:${group}:${row.key}`, group });
       previous = group;
     }
-    grouped.push(row);
+    if (!collapsed.has(group)) grouped.push(row);
   }
   return grouped;
 }

@@ -94,3 +94,10 @@ test("a page that did not land, or a cursor a reload brought back, is fetched ag
   await reloaded.reachTop();
   assert.deepEqual(cursors(reloaded.calls), ["older", "older"]);
 });
+
+test("RuoYi 业务模式把完成过程折叠为中文用时入口", () => {
+  assert.match(source.text, /formatBusinessTurnDuration/);
+  assert.match(source.text, /const parts = businessMode[\s\S]*?chat\.businessTurnDuration/);
+  assert.match(source.text, /if \(!businessMode && toolCallCount > 0\)/);
+  assert.match(source.text, /businessMode=\{businessMode\}/);
+});

@@ -9,7 +9,7 @@ const configSources = await Promise.all(
   ]),
 );
 
-test("every add pane chooses its scope in one place: the save target under its title", async () => {
+test("local add panes show one save target; RuoYi hides the fixed project target", async () => {
   const sources = Object.fromEntries(configSources);
   const panes = {
     SkillsConfig: sources.SkillsConfig.match(/function AddSkillPanel[\s\S]*?\n\}\n/)?.[0] ?? "",
@@ -21,6 +21,9 @@ test("every add pane chooses its scope in one place: the save target under its t
     assert.ok(source, name);
     assert.match(source, /<ConfigSaveTarget[\s\S]*?label=\{t\("config\.saveTo"\)\}[\s\S]*?path=\{/, name);
     assert.doesNotMatch(source, /<ConfigScopeSwitch/, `${name} uses the shared row, not a switch of its own`);
+  }
+  for (const name of ["SkillsConfig", "PluginsConfig", "McpAddServer"]) {
+    assert.match(panes[name], /target=\{projectOnly \? null : \(/, `${name} hides the fixed RuoYi project target`);
   }
 });
 

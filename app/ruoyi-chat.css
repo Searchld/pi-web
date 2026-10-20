@@ -52,11 +52,16 @@
 }
 
 .qm-art-shell .qm-ruoyi-process-details {
-  margin-bottom: 18px !important;
+  margin-bottom: 4px !important;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+/* 回答以 Markdown 标题起始时，不让标题默认的上边距放大折叠过程后的留白。 */
+.qm-art-shell .qm-ruoyi-process-group + div [data-message-role="assistant"] .markdown-body > :first-child {
+  margin-top: 0;
 }
 
 .qm-art-shell .qm-ruoyi-process-details-toggle {
@@ -78,6 +83,16 @@
   border-left: 2px solid color-mix(in srgb, var(--border) 72%, transparent) !important;
   border-radius: 0 !important;
   background: transparent !important;
+}
+
+/* 业务模式的工具步骤对齐 Codex 的行式命令记录，不再显示卡片边线。 */
+.qm-art-shell .qm-ruoyi-process-details-content [data-tool-call][data-business-tool-call] {
+  border-left: 0 !important;
+}
+
+/* 过程内每个事件都是独立的助手消息；不沿用正文消息的 20px 段落间距。 */
+.qm-art-shell .qm-ruoyi-process-details-content [data-message-role="assistant"] {
+  margin-bottom: 6px !important;
 }
 
 /* 推理是过程文本，不再使用完整卡片；展开、耗时与延迟加载仍由原组件处理。 */

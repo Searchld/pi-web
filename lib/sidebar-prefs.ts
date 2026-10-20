@@ -1,7 +1,7 @@
 /**
  * Per-browser sidebar preferences: the active tab (sessions or files), the
  * user's explicit project group expand/collapse choices, the archive view's
- * folded projects, whether the pinned section is collapsed, whether the files section below the sessions is
+ * folded projects, whether the pinned section is collapsed, whether RuoYi's historical time groups are collapsed, whether the files section below the sessions is
  * collapsed, whether the files tab or section lists ignored files, and the
  * folders the worktree listing last found outside git.
  * Best-effort localStorage, like the other sidebar memories: privacy mode or
@@ -19,6 +19,7 @@ const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups-v2";
 const LEGACY_GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups";
 const ARCHIVE_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-archive-collapsed";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
+const RECENT_TIME_GROUPS_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-recent-time-groups-collapsed";
 const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
 const FILES_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-files-collapsed";
 const NON_GIT_CWDS_STORAGE_KEY = "pi-web:sidebar-non-git-cwds";
@@ -176,6 +177,33 @@ export function savePinnedCollapsed(
   if (!storage) return;
   try {
     storage.setItem(PINNED_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Persistence is best-effort.
+  }
+}
+
+/** RuoYi 最近会话中的历史时间分组默认展开。 */
+export function loadRecentTimeGroupsCollapsed(storage: StorageLike | null = getBrowserStorage()): string[] {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(RECENT_TIME_GROUPS_COLLAPSED_STORAGE_KEY);
+    const value: unknown = raw === null ? [] : JSON.parse(raw);
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter((group): group is string => group === "seven-days" || group === "earlier"))];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecentTimeGroupsCollapsed(
+  groups: readonly string[],
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(RECENT_TIME_GROUPS_COLLAPSED_STORAGE_KEY, JSON.stringify(
+      [...new Set(groups.filter((group) => group === "seven-days" || group === "earlier"))],
+    ));
   } catch {
     // Persistence is best-effort.
   }

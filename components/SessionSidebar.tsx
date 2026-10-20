@@ -25,6 +25,7 @@ import {
   PINNED_MORE_KEY,
   showLessFamilies,
   showMoreFamilies,
+  type RecentTimeGroup,
   type SidebarProject,
   type SidebarRow,
 } from "@/lib/session-tree";
@@ -35,6 +36,7 @@ import {
   loadGroupExpansion,
   loadNonGitCwds,
   loadPinnedCollapsed,
+  loadRecentTimeGroupsCollapsed,
   loadShowIgnoredFiles,
   loadSidebarTab,
   rememberCwdGitStatus,
@@ -42,6 +44,7 @@ import {
   saveFilesCollapsed,
   saveGroupExpansion,
   savePinnedCollapsed,
+  saveRecentTimeGroupsCollapsed,
   saveShowIgnoredFiles,
   saveSidebarTab,
   type SidebarTab,
@@ -101,6 +104,7 @@ import {
   FolderIcon,
   MessageIcon,
   MoreIcon,
+  NewChatIcon,
   ForkIcon,
   OpenInNewTabIcon,
   PencilIcon,
@@ -585,6 +589,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [keptOpenGroups, setKeptOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [moreShown, setMoreShown] = useState<Readonly<Record<string, number>>>({});
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  const [collapsedRecentTimeGroups, setCollapsedRecentTimeGroups] = useState<ReadonlySet<RecentTimeGroup>>(() => new Set());
   // The archive view's folded projects, per browser (lib/sidebar-prefs.ts).
   const [archiveCollapsed, setArchiveCollapsed] = useState<readonly string[]>([]);
   const [archiveView, setArchiveViewState] = useState(false);
@@ -739,6 +744,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const groups = loadGroupExpansion();
     if (Object.keys(groups).length > 0) setGroupExpansion(groups);
     if (loadPinnedCollapsed()) setPinnedCollapsed(true);
+    const collapsedRecentGroups = loadRecentTimeGroupsCollapsed();
+    if (collapsedRecentGroups.length > 0) setCollapsedRecentTimeGroups(new Set(collapsedRecentGroups) as ReadonlySet<RecentTimeGroup>);
     const archiveFolds = loadArchiveCollapsed();
     if (archiveFolds.length > 0) setArchiveCollapsed(archiveFolds);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
@@ -2274,6 +2281,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     saveGroupChoices(next, [projectKey]);
   }, [groupExpansion, projectByKey, saveGroupChoices, setAllGroupsExpanded, shownGroupExpansion]);
 
+  const handleToggleRecentTimeGroup = useCallback((group: Extract<RecentTimeGroup, "seven-days" | "earlier">) => {
+    setCollapsedRecentTimeGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      saveRecentTimeGroupsCollapsed([...next]);
+      return next;
+    });
+  }, []);
+
   // The window a click opens is the one its row offers now (`nextShown`):
   // decided at the click, by position, so a row that turns selected, unread
   // or running later never shifts it.
@@ -2980,7 +2997,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onClick={handleNewSession}
                 disabled={!selectedCwd}
               >
-                <PlusIcon size={18} />
+                <NewChatIcon size={14} />
                 <span>{t("sidebar.newChat")}</span>
               </button>
               <button
@@ -3032,6 +3049,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 {...treeProps}
                 rows={sessionTreeRows}
                 timeGroupRecent={hideWorkspacePicker}
+                collapsedRecentTimeGroups={collapsedRecentTimeGroups}
+                onToggleRecentTimeGroup={handleToggleRecentTimeGroup}
                 emptyLabel={t("sidebar.noSessions")}
                 reveal={treeReveal}
                 onRevealHandled={handleRevealHandled}

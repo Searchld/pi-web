@@ -459,21 +459,19 @@ function AddSkillPanel({
         <ConfigAddSourceHeading
           title={t("i18n.addSkill")}
           catalogs={[{ href: "https://skills.sh", label: "skills.sh" }]}
-          target={
+          target={projectOnly ? null : (
             <ConfigSaveTarget
               value={scope}
               label={t("config.saveTo")}
-              options={projectOnly
-                ? [{ value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded }]
-                : [
-                    { value: "global", label: scopeLabel("global", t) },
-                    { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-                  ]}
+              options={[
+                { value: "global", label: scopeLabel("global", t) },
+                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+              ]}
               path={installPath}
               disabledReason={t("trust.projectScopeUnavailable")}
               onChange={setScope}
             />
-          }
+          )}
         />
 
         {/* Search row */}

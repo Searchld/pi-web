@@ -307,6 +307,10 @@ function readCompactResult(result: unknown, reason: string): CompactResultInfo |
   return { reason, tokensBefore: r.tokensBefore, estimatedTokensAfter: r.estimatedTokensAfter };
 }
 
+function isCompactionNotNeededError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Nothing to compact (session too small)";
+}
+
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (content: string) => void;
@@ -402,6 +406,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [autoCompactionEnabled, setAutoCompactionEnabled] = useState(true);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [compactResult, setCompactResult] = useState<CompactResultInfo | null>(null);
+  const [compactNotNeeded, setCompactNotNeeded] = useState(false);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
   const [promptAnchorActive, setPromptAnchorActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -1927,14 +1932,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const handleFork = useCallback(async (entryId: string) => {
+  const handleFork = useCallback(async (entryId: string, preserveEntry = false) => {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
     setForkingEntryId(entryId);
     try {
       const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
-        type: "fork",
+        type: preserveEntry ? "fork_branch" : "fork",
         entryId,
       });
       const { cancelled, newSessionId } = result ?? {};
@@ -1948,6 +1953,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setForkingEntryId(null);
     }
   }, [addNotice, onSessionForked]);
+
+  // 回答下的“分支到新会话”需要保留该回答；普通“新会话”仍从消息前分叉。
+  const handleForkBranch = useCallback((entryId: string) => handleFork(entryId, true), [handleFork]);
 
   const handleNavigate = useCallback(async (entryId: string): Promise<boolean> => {
     if (bashRunningRef.current) return false;
@@ -2045,12 +2053,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCompactResult(readCompactResult(result, "manual"));
       await loadSession(sid, true);
     } catch (e) {
+      if (isCompactionNotNeededError(e)) {
+        setCompactNotNeeded(true);
+        setCompactError(null);
+        setCompactResult(null);
+        return;
+      }
       setCompactError(e instanceof Error ? e.message : String(e));
       setCompactResult(null);
     } finally {
       setIsCompacting(false);
     }
   }, [isCompacting, loadSession]);
+
+  useEffect(() => {
+    // SDK 只在真正执行时才判定历史是否足够；有新消息后再允许重试。
+    setCompactNotNeeded(false);
+  }, [data?.sessionId, messages.length]);
 
   // The banner otherwise stays until the next compaction, e.g. "Nothing to compact".
   const dismissCompactError = useCallback(() => setCompactError(null), []);
@@ -2800,7 +2819,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, allowedToolPresets, ruoyiToolPolicyManaged, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
-    isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
+    isCompacting, compactError, compactResult, compactNotNeeded, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
@@ -2816,7 +2835,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleForkBranch, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,

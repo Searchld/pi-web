@@ -911,6 +911,27 @@ test("a compact error can be dismissed when the composer is given a handler", ()
   assert.doesNotMatch(render({}), /Dismiss compaction error/);
 });
 
+test("does not present a too-small session as a compaction error", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onCompact() {},
+        isStreaming: false,
+        compactNotNeeded: true,
+      }),
+    ),
+  );
+
+  assert.match(html, /role="status"/);
+  assert.match(html, /This session is still short/);
+  assert.match(html, /disabled=""/);
+  assert.doesNotMatch(html, /role="alert"/);
+});
+
 test("modelSupportsImageInput warns only when modality info is known and lacks image", () => {
   const modelList = [
     { id: "text-only", name: "Text Only", provider: "ollama", input: ["text"] },

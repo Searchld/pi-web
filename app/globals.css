@@ -1168,12 +1168,21 @@ button.extension-widget-trigger:focus-visible {
 }
 
 :root {
-  --font-ui-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono-default: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  --font-ui-default: 'Inter Variable', 'Noto Sans SC Variable', sans-serif;
+  --font-mono-default: var(--font-ui-default);
   --font-ui: var(--font-ui-default);
   --font-mono: var(--font-mono-default);
   --font-ui-weight: 400;
   --font-mono-weight: 400;
+}
+
+/* Pi Web 全局使用 RuoYi 字体；不沿用浏览器中保存的自定义字体偏好。 */
+html {
+  --font-ui: var(--font-ui-default) !important;
+  --font-mono: var(--font-mono-default) !important;
+  --font-ui-weight: 400 !important;
+  --font-mono-weight: 400 !important;
+  font-synthesis: none;
 }
 
 pre, code {
@@ -3371,9 +3380,10 @@ span.token.table {
 
 .digital-human-panel__caption {
   position: absolute;
-  right: 14px;
   bottom: 16px;
-  left: 14px;
+  left: 50%;
+  width: fit-content;
+  max-width: calc(100% - 28px);
   max-height: 112px;
   overflow: auto;
   padding: 9px 12px;
@@ -3385,17 +3395,18 @@ span.token.table {
   font-size: 13px;
   line-height: 1.65;
   text-align: center;
+  transform: translateX(-50%);
   animation: digital-human-caption-in 180ms ease-out both;
 }
 
 @keyframes digital-human-caption-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateX(-50%) translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(-50%) translateY(0);
   }
 }
 

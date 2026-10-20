@@ -133,6 +133,23 @@ test("the pinned header toggles the section and shows activity dots only while c
   assert.doesNotMatch(expanded, /session-tree-pinned-dot/);
 });
 
+test("RuoYi historical time headings expose their own fold state", () => {
+  const html = render({
+    roomy: true,
+    collapsedRecentTimeGroups: new Set(["earlier"]),
+    rows: [
+      { kind: "time-group", key: "time:today", group: "today" },
+      { kind: "time-group", key: "time:seven-days", group: "seven-days" },
+      { kind: "time-group", key: "time:earlier", group: "earlier" },
+    ],
+  });
+  assert.doesNotMatch(rowMarkup(html, "time:today"), /session-tree-time-group-toggle/);
+  assert.match(rowMarkup(html, "time:seven-days"), /class="session-tree-time-group-toggle" aria-expanded="true"/);
+  assert.match(rowMarkup(html, "time:seven-days"), /session-tree-time-group-chevron is-open/);
+  assert.match(rowMarkup(html, "time:earlier"), /class="session-tree-time-group-toggle" aria-expanded="false"/);
+  assert.doesNotMatch(rowMarkup(html, "time:earlier"), /session-tree-time-group-chevron is-open/);
+});
+
 test("a collapsed group shows its running and unread counts and labelled actions", () => {
   const html = rowMarkup(render({
     rows: [groupRow({ expanded: false, running: 2, unread: 1 }, { pinned: true, current: false })],

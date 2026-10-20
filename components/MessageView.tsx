@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
+import { BranchIcon } from "./SidebarIcons";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
@@ -193,6 +194,11 @@ interface Props {
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
+  hideModelLabel?: boolean;
+  businessMode?: boolean;
+  showSpeakButton?: boolean;
+  showForkButton?: boolean;
+  onSpeakAnswer?: (text: string) => void;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
@@ -285,12 +291,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, hideModelLabel, businessMode, showSpeakButton, showForkButton, onSpeakAnswer, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} hideModelLabel={hideModelLabel} businessMode={businessMode} showSpeakButton={showSpeakButton} showForkButton={showForkButton} onSpeakAnswer={onSpeakAnswer} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -311,6 +317,11 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.isStreaming === next.isStreaming
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
     && prev.modelNames === next.modelNames
+    && prev.hideModelLabel === next.hideModelLabel
+    && prev.businessMode === next.businessMode
+    && prev.showSpeakButton === next.showSpeakButton
+    && prev.showForkButton === next.showForkButton
+    && prev.onSpeakAnswer === next.onSpeakAnswer
     && prev.cwd === next.cwd
     && prev.onOpenFile === next.onOpenFile
     && prev.onOpenSubagent === next.onOpenSubagent
@@ -647,13 +658,20 @@ function AssistantMessageView({
   isStreaming,
   toolResults,
   modelNames,
+  hideModelLabel,
+  businessMode,
+  showSpeakButton,
+  showForkButton,
+  onSpeakAnswer,
   cwd,
   onOpenFile,
   onOpenSubagent,
+  entryId,
+  onFork,
+  forking,
   showTimestamp,
   prevTimestamp,
   sessionId,
-  entryId,
   searchBlock,
   writtenFiles,
   turnDurationMs,
@@ -665,13 +683,20 @@ function AssistantMessageView({
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
+  hideModelLabel?: boolean;
+  businessMode?: boolean;
+  showSpeakButton?: boolean;
+  showForkButton?: boolean;
+  onSpeakAnswer?: (text: string) => void;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
+  entryId?: string;
+  onFork?: (entryId: string) => void;
+  forking?: boolean;
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
-  entryId?: string;
   searchBlock?: AssistantContentBlock;
   writtenFiles?: WrittenFile[];
   turnDurationMs?: number;
@@ -717,6 +742,15 @@ function AssistantMessageView({
   }, [blockItems, isStreaming]);
   const estimatedTokensRef = useRef(estimatedTokens);
   estimatedTokensRef.current = estimatedTokens;
+  // 仅在业务模式显示当前流式阶段：工具尚未返回时为处理，其余为模型思考。
+  const streamStatus = businessMode && isStreaming
+    ? (() => {
+      const latestBlock = blockItems[blockItems.length - 1]?.block;
+      return latestBlock?.type === "toolCall" && !toolResults?.has(latestBlock.toolCallId)
+        ? t("chat.processing")
+        : t("chat.thinking");
+    })()
+    : null;
 
   // Streaming-based timing for thinking blocks
   const blockStartTimesRef = useRef<Map<number, number>>(new Map());
@@ -820,8 +854,7 @@ function AssistantMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Model label */}
-      <div
+      {(isStreaming || (!hideModelLabel && message.provider)) && <div
         style={{
           fontSize: 11,
           color: "var(--text-dim)",
@@ -831,8 +864,14 @@ function AssistantMessageView({
           gap: 6,
         }}
       >
-        {message.provider && (
+        {!hideModelLabel && message.provider && (
           <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
+        )}
+        {streamStatus && (
+          <span data-stream-status style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--text-muted)" }}>
+            <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
+            {streamStatus}
+          </span>
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
@@ -860,13 +899,13 @@ function AssistantMessageView({
             </>
           );
         })()}
-      </div>
+      </div>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {/* Not keyed by the entry id: a message of this run gets one when the file is
             read again, and its blocks keep their state across that read (#1184). */}
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={originalIndex} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={originalIndex} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} businessMode={businessMode} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
 
@@ -939,10 +978,11 @@ function AssistantMessageView({
         <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} />
       )}
 
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginTop: 4,
-      }}>
-        {(message.usage || turnDurationMs !== undefined) && !isStreaming && (
+      {((!businessMode && (message.usage || turnDurationMs !== undefined) && !isStreaming) || textContent || (time && !isStreaming && !businessMode)) && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: businessMode ? 2 : 8, marginTop: 4,
+        }}>
+          {!businessMode && (message.usage || turnDurationMs !== undefined) && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
             {[
               message.usage ? formatUsage(message.usage, t) : null,
@@ -950,13 +990,13 @@ function AssistantMessageView({
             ].filter(Boolean).join(" \u00b7 ")}
           </div>
         )}
-        {textContent && !isStreaming && (
+          {textContent && !isStreaming && (
           <button
             onClick={copyContent}
              title={t("i18n.copyMessage")}
             style={{
               display: "flex", alignItems: "center", gap: 4,
-              padding: "3px 8px", height: 22,
+              padding: businessMode ? "3px 4px" : "3px 8px", height: 22,
               background: "none", border: "none",
               borderRadius: 5,
               color: copied ? "var(--accent)" : "var(--text-dim)",
@@ -983,26 +1023,76 @@ function AssistantMessageView({
              {copied ? t("i18n.copied") : t("i18n.copy")}
           </button>
         )}
-        {time && !isStreaming && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
-        )}
-      </div>
+          {showSpeakButton && onSpeakAnswer && textContent && !isStreaming && (
+            <button
+              type="button"
+              onClick={() => onSpeakAnswer(textContent)}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+              title={t("chat.speakAnswer")}
+              aria-label={t("chat.speakAnswer")}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "3px 4px", height: 22,
+                background: "none", border: "none", borderRadius: 5,
+                color: "var(--text-dim)", cursor: "pointer",
+                fontSize: 11, fontWeight: 400, whiteSpace: "nowrap",
+                opacity: hovered ? 1 : 0,
+                pointerEvents: hovered ? "auto" : "none",
+                transition: "opacity 0.12s, color 0.12s",
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M11 5 6 9H3v6h3l5 4Z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" />
+              </svg>
+              {t("chat.speakAnswer")}
+            </button>
+          )}
+          {showForkButton && onFork && entryId && !isStreaming && (
+            <button
+              type="button"
+              onClick={() => onFork(entryId)}
+              disabled={forking}
+              title={forking ? t("i18n.creatingSession") : t("chat.branchToNewChat")}
+              aria-label={forking ? t("i18n.creatingSession") : t("chat.branchToNewChat")}
+              onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-muted)"; }}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "3px 4px", height: 22,
+                background: "none", border: "none", borderRadius: 5,
+                color: forking ? "var(--accent)" : "var(--text-muted)", cursor: forking ? "wait" : "pointer",
+                fontSize: 11, fontWeight: 400, whiteSpace: "nowrap",
+                opacity: hovered || forking ? 1 : 0,
+                pointerEvents: hovered || forking ? "auto" : "none",
+                transition: "opacity 0.12s, color 0.12s",
+              }}
+            >
+              <BranchIcon size={13} />
+              {forking ? t("i18n.creating") : t("chat.branchToNewChat")}
+            </button>
+          )}
+          {time && !isStreaming && !businessMode && (
+            <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDuration, toolCallDurations, businessMode, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; businessMode?: boolean; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     return <div data-message-text data-search-target={searchTarget || undefined}><TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} /></div>;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} businessMode={businessMode} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} onOpenSubagent={onOpenSubagent} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} businessMode={businessMode} onOpenSubagent={onOpenSubagent} />;
   }
   return null;
 }
@@ -1024,9 +1114,10 @@ function ThinkingText({ text }: { text: string }) {
   return pieces.map((piece, index) => <div key={index}>{piece.text}</div>);
 }
 
-export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+export function ThinkingBlock({ block, duration, businessMode, sessionId, entryId, blockIndex }: {
   block: ThinkingContent;
   duration?: number;
+  businessMode?: boolean;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
@@ -1124,7 +1215,11 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
           textAlign: "left",
         }}
       >
-        <ThinkingIcon active={expanded} />
+        {businessMode ? (
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+            <polyline points="4 2.5 7.5 6 4 9.5" />
+          </svg>
+        ) : <ThinkingIcon active={expanded} />}
         {!expanded && (
           <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {preview ? <ReactMarkdown allowedElements={[]} unwrapDisallowed skipHtml>{preview}</ReactMarkdown> : "..."}
@@ -1134,7 +1229,8 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
       {expanded && (
         <div
           style={{
-            flex: 1,
+            flex: businessMode ? "0 1 auto" : 1,
+            maxWidth: businessMode ? "min(960px, 76vw)" : undefined,
             minWidth: 0,
             color: error ? "#f87171" : "var(--text-muted)",
             whiteSpace: "pre-wrap",
@@ -1145,7 +1241,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
         </div>
       )}
       {duration !== undefined && (
-        <span style={{ flexShrink: 0, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        <span style={{ flexShrink: 0, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums", marginLeft: businessMode ? 0 : "auto" }}>{duration}s</span>
       )}
     </div>
   );
@@ -1176,7 +1272,7 @@ export function formatToolDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
 }
 
-function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSubagent?: (sessionId: string, label: string) => void }) {
+function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; businessMode?: boolean; onOpenSubagent?: (sessionId: string, label: string) => void }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(() => isToolCallExpanded(block.toolCallId));
   const toggleExpanded = () => {
@@ -1214,16 +1310,22 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
     || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
+  const toolPreview = isStreamingInput
+    ? t("chat.generatingToolInput")
+    : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)));
+  const businessToolText = toolPreview || (mcpLabel ? `${mcpLabel.server}/${mcpLabel.tool}` : block.toolName);
+  const displayedInput = businessMode && !codemode ? formatBusinessToolInput(inputStr) : inputStr;
 
   return (
     <div
       data-tool-call
+      data-business-tool-call={businessMode || undefined}
       style={{
-        borderRadius: 7,
+        borderRadius: businessMode ? 0 : 7,
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
+        border: businessMode ? "none" : (isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)"),
+        background: businessMode ? "transparent" : (isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)"),
       }}
     >
       {/* ── Tool call header ── */}
@@ -1233,10 +1335,10 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 7,
+            gap: businessMode ? 8 : 7,
             flex: 1,
             minWidth: 0,
-            padding: "6px 10px",
+            padding: businessMode ? "5px 2px" : "6px 10px",
             background: "none",
             border: "none",
             color: "var(--text-muted)",
@@ -1245,22 +1347,37 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
             textAlign: "left",
           }}
         >
-          <span
-            title={mcpLabel ? block.toolName : undefined}
-            style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}
-          >
-            {mcpLabel ? (
-              <>
-                <span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>
-                {mcpLabel.tool}
-              </>
-            ) : block.toolName}
-          </span>
-          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {isStreamingInput
-              ? t("chat.generatingToolInput")
-              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)))}
-          </span>
+          {businessMode ? (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: isError ? "#dc2626" : "var(--text-muted)", flexShrink: 0 }}>
+                <rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" />
+              </svg>
+              <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>{result ? t("chat.ranTool") : t("chat.runningTool")}</span>
+              <code title={block.toolName} style={{ color: isError ? "#dc2626" : "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "0 1 auto", maxWidth: "min(640px, 70vw)", minWidth: 0 }}>
+                {businessToolText}
+              </code>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+                <polyline points="3 2 6.5 5 3 8" />
+              </svg>
+            </>
+          ) : (
+            <>
+              <span
+                title={mcpLabel ? block.toolName : undefined}
+                style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}
+              >
+                {mcpLabel ? (
+                  <>
+                    <span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>
+                    {mcpLabel.tool}
+                  </>
+                ) : block.toolName}
+              </span>
+              <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                {toolPreview}
+              </span>
+            </>
+          )}
           {codemodeCallCount > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
               {codemodeCallCount === 1 ? t("codemode.callCountOne") : t("codemode.callCount", { count: codemodeCallCount })}
@@ -1269,9 +1386,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           {duration !== undefined && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatToolDuration(duration)}</span>
           )}
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          {!businessMode && <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
             <polyline points="2 3.5 5 6.5 8 3.5" />
-          </svg>
+          </svg>}
         </button>
         {subagent && onOpenSubagent && (
           <button
@@ -1291,18 +1408,19 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         <pre
           style={{
             margin: 0,
-            padding: "8px 10px",
+            padding: businessMode ? "4px 2px 6px" : "8px 10px",
             color: "var(--text-muted)",
             fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
             lineHeight: 1.5,
             overflow: "auto",
-            background: "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
+            background: businessMode ? "transparent" : "var(--bg-subtle)",
+            border: businessMode ? "none" : undefined,
+            borderTop: businessMode ? undefined : (isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)"),
+            whiteSpace: businessMode ? "pre" : "pre-wrap",
+            wordBreak: businessMode ? "normal" : "break-all",
           }}
         >
-          {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
+          {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : displayedInput}
         </pre>
       )}
 
@@ -2032,6 +2150,15 @@ function safeJson(value: unknown): string {
 
 export function getToolCallInputText(block: ToolCallContent): string {
   return block.rawInput ?? JSON.stringify(block.input, null, 2);
+}
+
+/** 业务查询参数只作补充信息，压为一行而不改变工具的实际输入。 */
+function formatBusinessToolInput(input: string): string {
+  try {
+    return JSON.stringify(JSON.parse(input));
+  } catch {
+    return input.replace(/\s+/g, " ").trim();
+  }
 }
 
 const WRITE_VIEW_KEYS = new Set(["path", "file_path", "content"]);

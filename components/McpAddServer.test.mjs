@@ -91,12 +91,10 @@ test("the paste box is a textarea that never takes focus by itself on a phone, a
   assert.doesNotMatch(text(html), /Nothing to add yet/);
 });
 
-test("RuoYi 新 MCP 只显示项目范围，并默认写入项目配置", () => {
+test("RuoYi 新 MCP 隐藏固定项目范围与路径，仍默认写入项目配置", () => {
   const html = decode(pane({ projectOnly: true }));
-  const target = html.match(/<div class="config-save-target">[\s\S]*?<\/div><\/div>/)?.[0] ?? "";
-  assert.match(target, />project</);
-  assert.doesNotMatch(target, />global</);
-  assert.match(target.replace(/<wbr\/>/g, ""), /repo\/\.pi\/mcp\.json/);
+  assert.doesNotMatch(html, /config-save-target/);
+  assert.doesNotMatch(text(html), /repo\/\.pi\/mcp\.json/);
 });
 
 test("before Add the pane shows what would be written: the target as written, names, shell commands, notes", () => {

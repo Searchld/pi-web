@@ -9,6 +9,7 @@ test("RuoYi iframe 顶部工具栏请求父窗口拖动和全屏", () => {
   assert.match(source, /qimiao-dialog-drag-move/);
   assert.match(source, /qimiao-dialog-drag-end/);
   assert.match(source, /qimiao-dialog-toggle-fullscreen/);
+  assert.match(source, /screenX: event\.screenX, screenY: event\.screenY/);
   assert.match(source, /Math\.hypot\(event\.clientX - pointer\.startX, event\.clientY - pointer\.startY\) < 4/);
   assert.match(source, /event\.currentTarget\.setPointerCapture\(event\.pointerId\)/);
   assert.match(source, /document\.addEventListener\("dblclick", handleDocumentDoubleClick, true\)/);
@@ -67,4 +68,26 @@ test("RuoYi 打开文件面板时隐藏并在关闭时恢复数字人", () => {
   assert.match(source, /if \(digitalHumanOpen\) setDigitalHumanOpen\(false\);/);
   assert.match(source, /else if \(justClosed && digitalHumanHiddenByFilePanelRef\.current\)/);
   assert.match(source, /setDigitalHumanOpen\(true\);/);
+});
+
+test("RuoYi 数字人可记住用户主动隐藏的选择", () => {
+  assert.match(source, /ui\.qimiao-web\.digital-human-hidden/);
+  assert.match(source, /const updateDigitalHumanVisibility = useCallback/);
+  assert.match(source, /JSON\.stringify\(\{ digitalHumanHidden: !open \}\)/);
+  assert.match(source, /digitalHumanVisibilityReady && digitalHumanOpen/);
+});
+
+test("RuoYi 已完成回答可唤起数字人手动播报", () => {
+  assert.match(source, /const handleSpeakAnswer = useCallback/);
+  assert.match(source, /digitalHumanRef\.current\?\.speakAnswer\(text\)/);
+  assert.match(source, /pendingDigitalHumanSpeechRef\.current = text/);
+  assert.match(source, /const handleDigitalHumanReady = useCallback/);
+  assert.match(source, /onReady=\{handleDigitalHumanReady\}/);
+  assert.match(source, /onSpeakAnswer=\{isRuoyiIntegration \? handleSpeakAnswer : undefined\}/);
+});
+
+test("RuoYi 浏览器标题随当前会话切换，并使用 Web Agent 标识", () => {
+  assert.match(source, /const selectedSessionTitle = selectedSession\?\.name\?\.trim\(\) \|\| selectedSession\?\.firstMessage\.trim\(\);/);
+  assert.match(source, /`\$\{selectedSessionTitle\.slice\(0, 60\)\} · Web Agent`/);
+  assert.match(source, /: "Web Agent"/);
 });

@@ -148,6 +148,16 @@ export function PencilIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></SidebarIcon>;
 }
 
+/** 方框铅笔：用于“新聊天”，比单支铅笔更明确地表达新建会话。 */
+export function NewChatIcon(props: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props}>
+      <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M17.5 3.5a2.12 2.12 0 0 1 3 3L13 14l-4 1 1-4Z" />
+    </SidebarIcon>
+  );
+}
+
 /** Filled dot: "mark as unread". */
 export function DotIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><circle cx="12" cy="12" r="4.5" fill="currentColor" stroke="none" /></SidebarIcon>;

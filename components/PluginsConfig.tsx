@@ -292,21 +292,19 @@ function AddPluginPanel({
           </svg>
         ),
       }]}
-      target={
+      target={projectOnly ? null : (
         <ConfigSaveTarget
           value={scope}
           label={t("config.saveTo")}
-          options={projectOnly
-            ? [{ value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded }]
-            : [
-                { value: "global", label: scopeLabel("global", t) },
-                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-              ]}
+          options={[
+            { value: "global", label: scopeLabel("global", t) },
+            { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+          ]}
           path={installLocation(scope, cwd)}
           disabledReason={t("trust.projectScopeUnavailable")}
           onChange={onScopeChange}
         />
-      }
+      )}
       inputLabel={t("config.source")}
       inputId="plugin-source"
       placeholder="npm:@scope/package"

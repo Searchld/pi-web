@@ -141,7 +141,7 @@ location ^~ /xi-web/ {
 - RuoYi 嵌入态展开文件面板时，其顶部标签工具栏使用 `--bg` 白底，与主工具栏和数字人栏一致；普通 Pi Web 仍使用原本的 `--bg-panel`。
 - RuoYi 嵌入态中，文件面板右上角的关闭按钮使用 `×`，避免与顶部“打开文件面板”的分栏图标混淆；普通 Pi Web 保留原图标。
 - RuoYi 嵌入态所有可切换工具栏图标的激活态统一为 `#ecf5ff` 浅蓝底和 `#409eff` 图标色，普通 Pi Web 仍使用原主题选中态。
-- Pi Web 只承担形象 iframe、浏览器音频、字幕和回复流分句；RuoYi 仍是用户偏好与数字人服务的来源。`GET /api/ruoyi-digital-human` 通过当前 Pi Web HttpOnly RuoYi 会话读取 `/system/user-ui`，不会把 RuoYi 令牌暴露给浏览器。
+- Pi Web 只承担形象 iframe、浏览器音频、字幕和回复流分句；RuoYi 仍是用户偏好与数字人服务的来源。`GET /api/ruoyi-digital-human` 通过当前 Pi Web HttpOnly RuoYi 会话读取 `/system/user-ui`，`PUT` 只写入当前账号的 `ui.console-pet.voice-enabled` 或 `ui.qimiao-web.digital-human-hidden`；两者都不会把 RuoYi 令牌暴露给浏览器。
 - 数字人面板必须先取得当前用户的形象偏好再挂载媒体 iframe，不能先渲染默认 `assets1` 再替换，避免出现形象闪换；接口不可用时才一次性回退默认形象。
 - 形象 iframe 默认使用 `https://live.beta.kim/static/GuideLive.html`，TTS 默认使用同源 `/guide_speech`；如生产环境地址不同，构建时设置 `NEXT_PUBLIC_DH_LIVE_URL` 与 `NEXT_PUBLIC_XIAOXI_TTS_ENDPOINT`。这两个地址属于公开的数字人媒体服务，不能替换为携带 RuoYi 登录令牌的浏览器直连接口。
 - 回答流只将助手正文的 `text_start` / `text_delta` / 完成事件交给数字人；推理内容、工具参数和工具结果不会被播报。中断回答时停止队列，不补播未结束文本。

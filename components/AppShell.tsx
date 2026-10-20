@@ -125,7 +125,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       return null;
     }
   }, []);
-  const postRuoyiParentMessage = useCallback((message: { type: string; clientX?: number; clientY?: number }) => {
+  const postRuoyiParentMessage = useCallback((message: { type: string; screenX?: number; screenY?: number }) => {
     if (window.parent === window) return;
     const origin = getRuoyiParentOrigin();
     if (origin) window.parent.postMessage(message, origin);
@@ -370,15 +370,41 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [digitalHumanOpen, setDigitalHumanOpen] = useState(isRuoyiIntegration);
+  const [digitalHumanOpen, setDigitalHumanOpen] = useState(false);
+  const [digitalHumanVisibilityReady, setDigitalHumanVisibilityReady] = useState(!isRuoyiIntegration);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const [rightFileSearchOpen, setRightFileSearchOpen] = useState(false);
   const rightPanelWasOpenRef = useRef(false);
+  const rightPanelOpenRef = useRef(false);
   const digitalHumanHiddenByFilePanelRef = useRef(false);
+  const digitalHumanVisibilitySavingRef = useRef(false);
   const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
   useEffect(() => {
     if (!rightPanelOpen || isMobile) setRightPanelExpanded(false);
   }, [rightPanelOpen, isMobile]);
+  useEffect(() => {
+    rightPanelOpenRef.current = rightPanelOpen;
+  }, [rightPanelOpen]);
+  useEffect(() => {
+    if (!isRuoyiIntegration) return;
+    let active = true;
+    void fetch("/api/ruoyi-digital-human", { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() as Promise<{ settings?: Record<string, string> }> : null)
+      .then((response) => {
+        if (!active) return;
+        const open = response?.settings?.["ui.qimiao-web.digital-human-hidden"] !== "true";
+        digitalHumanHiddenByFilePanelRef.current = open && rightPanelOpenRef.current;
+        setDigitalHumanOpen(open && !rightPanelOpenRef.current);
+        setDigitalHumanVisibilityReady(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        digitalHumanHiddenByFilePanelRef.current = rightPanelOpenRef.current;
+        setDigitalHumanOpen(!rightPanelOpenRef.current);
+        setDigitalHumanVisibilityReady(true);
+      });
+    return () => { active = false; };
+  }, [isRuoyiIntegration]);
   useEffect(() => {
     const justOpened = rightPanelOpen && !rightPanelWasOpenRef.current;
     const justClosed = !rightPanelOpen && rightPanelWasOpenRef.current;
@@ -472,7 +498,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     startY: number;
     dragging: boolean;
   } | null>(null);
-  const postRuoyiDialogEvent = useCallback((message: { type: string; clientX?: number; clientY?: number }) => {
+  const postRuoyiDialogEvent = useCallback((message: { type: string; screenX?: number; screenY?: number }) => {
     postRuoyiParentMessage(message);
   }, [postRuoyiParentMessage]);
   const isRuoyiToolbarWindowGesture = useCallback((target: EventTarget | null) => {
@@ -500,9 +526,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < 4) return;
       pointer.dragging = true;
       event.currentTarget.setPointerCapture(event.pointerId);
-      postRuoyiDialogEvent({ type: "qimiao-dialog-drag-start", clientX: pointer.startX, clientY: pointer.startY });
+      postRuoyiDialogEvent({ type: "qimiao-dialog-drag-start", screenX: event.screenX, screenY: event.screenY });
     }
-    postRuoyiDialogEvent({ type: "qimiao-dialog-drag-move", clientX: event.clientX, clientY: event.clientY });
+    postRuoyiDialogEvent({ type: "qimiao-dialog-drag-move", screenX: event.screenX, screenY: event.screenY });
   }, [postRuoyiDialogEvent]);
   const handleRuoyiToolbarPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const pointer = ruoyiToolbarPointerRef.current;
@@ -690,14 +716,33 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     setRightPanelOpen((open) => !open);
   }, [isMobile]);
 
+  const updateDigitalHumanVisibility = useCallback(async (open: boolean) => {
+    if (!digitalHumanVisibilityReady || digitalHumanVisibilitySavingRef.current) return;
+    const previousOpen = digitalHumanOpen;
+    setDigitalHumanOpen(open);
+    digitalHumanVisibilitySavingRef.current = true;
+    try {
+      const response = await fetch("/api/ruoyi-digital-human", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ digitalHumanHidden: !open }),
+      });
+      if (!response.ok) throw new Error("数字人显示偏好保存失败");
+    } catch {
+      setDigitalHumanOpen(previousOpen);
+    } finally {
+      digitalHumanVisibilitySavingRef.current = false;
+    }
+  }, [digitalHumanOpen, digitalHumanVisibilityReady]);
+
   const handleDigitalHumanToggle = useCallback(() => {
     if (isMobile) {
       setSidebarOpen(false);
       setActiveTopPanel(null);
       setMobileToolbarMoreOpen(false);
     }
-    setDigitalHumanOpen((open) => !open);
-  }, [isMobile]);
+    void updateDigitalHumanVisibility(!digitalHumanOpen);
+  }, [digitalHumanOpen, isMobile, updateDigitalHumanVisibility]);
 
   const handleRightPanelExpandToggle = useCallback(() => {
     setActiveTopPanel(null);
@@ -755,9 +800,26 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const digitalHumanRef = useRef<DigitalHumanHandle | null>(null);
+  const pendingDigitalHumanSpeechRef = useRef<string | null>(null);
   useEffect(() => {
     if (!digitalHumanOpen) digitalHumanRef.current?.stop();
   }, [digitalHumanOpen]);
+  const handleSpeakAnswer = useCallback((text: string) => {
+    if (!text.trim()) return;
+    if (digitalHumanOpen) {
+      digitalHumanRef.current?.speakAnswer(text);
+      return;
+    }
+    // 用户点击播报即表示希望看到数字人；同时将该选择保存为显示状态。
+    pendingDigitalHumanSpeechRef.current = text;
+    void updateDigitalHumanVisibility(true);
+  }, [digitalHumanOpen, updateDigitalHumanVisibility]);
+  const handleDigitalHumanReady = useCallback(() => {
+    const text = pendingDigitalHumanSpeechRef.current;
+    if (!text) return;
+    pendingDigitalHumanSpeechRef.current = null;
+    digitalHumanRef.current?.speakAnswer(text);
+  }, []);
   const fileWorkspaceStatesRef = useRef(new Map<string, ParkedFileWorkspace>());
   // Bumped on every workspace switch. The active viewer reports its state as
   // it unmounts, tagged with the generation it rendered in, so the report of a
@@ -1711,7 +1773,12 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     </>
   );
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const selectedSessionTitle = selectedSession?.name?.trim() || selectedSession?.firstMessage.trim();
+  const windowTitle = isRuoyiIntegration
+    ? (selectedSessionTitle && selectedSessionTitle !== "(no messages)"
+      ? `${selectedSessionTitle.slice(0, 60)} · Web Agent`
+      : "Web Agent")
+    : (activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web");
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -2249,7 +2316,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
 
   const renderDigitalHumanToggle = (mobile: boolean) => {
     // 面板展开时由其右上角的数字人图标负责隐藏；这里只保留隐藏后的恢复入口。
-    if (!isRuoyiIntegration || digitalHumanOpen) return null;
+    if (!isRuoyiIntegration || !digitalHumanVisibilityReady || digitalHumanOpen) return null;
     const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
     return (
       <button
@@ -2858,6 +2925,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                 if (end.aborted) digitalHumanRef.current?.stop();
                 else digitalHumanRef.current?.finish();
               }}
+              onSpeakAnswer={isRuoyiIntegration ? handleSpeakAnswer : undefined}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
@@ -3069,9 +3137,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           ) : panelTabContent}
         </div>
       </div>
-      {isRuoyiIntegration && digitalHumanOpen && (
+      {isRuoyiIntegration && digitalHumanVisibilityReady && digitalHumanOpen && (
         <aside id="digital-human-panel" className="digital-human-side-panel" aria-label="业务助手">
-          <DigitalHumanPanel ref={digitalHumanRef} onClose={() => setDigitalHumanOpen(false)} />
+          <DigitalHumanPanel ref={digitalHumanRef} onClose={() => { void updateDigitalHumanVisibility(false); }} onReady={handleDigitalHumanReady} />
         </aside>
       )}
     </div>

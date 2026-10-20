@@ -70,6 +70,8 @@ interface Props {
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
+  /** 当前会话历史过短，SDK 明确返回无需压缩。 */
+  compactNotNeeded?: boolean;
   onDismissCompactError?: () => void;
   compactResult?: CompactResultInfo | null;
   toolPreset?: ToolPreset;
@@ -661,7 +663,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
-  onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, allowedToolPresets, ruoyiToolPolicyManaged, onToolPresetChange,
+  onCompact, onAbortCompaction, isCompacting, compactError, compactNotNeeded, onDismissCompactError, compactResult, toolPreset, allowedToolPresets, ruoyiToolPolicyManaged, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -1866,6 +1868,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {compactResultText}
           </div>
         )}
+        {compactNotNeeded && (
+          <div
+            role="status"
+            style={{
+              marginBottom: 8, padding: "5px 10px",
+              background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.24)",
+              borderRadius: 6, fontSize: 12, color: "var(--text-muted)",
+            }}
+          >
+            {t("chat.compactionNotNeeded")}
+          </div>
+        )}
         {compactError && (
           <div
             role="alert"
@@ -2747,6 +2761,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               <div>
                 <button
                   onClick={isCompacting ? onAbortCompaction : (e) => { if (!isStrayClick(e)) onCompact(); }}
+                  disabled={!isCompacting && compactNotNeeded}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
@@ -2756,11 +2771,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     border: "none",
                     borderRadius: 9,
                     color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                    cursor: "pointer",
+                    cursor: !isCompacting && compactNotNeeded ? "not-allowed" : "pointer",
                     fontSize: 12,
+                    opacity: !isCompacting && compactNotNeeded ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
+                    if (compactNotNeeded && !isCompacting) return;
                     e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
                   }}
@@ -2768,8 +2785,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
                   }}
-                   title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                   aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+                   title={isCompacting ? t("chat.stopCompaction") : compactNotNeeded ? t("chat.compactionNotNeeded") : t("chat.compactContext")}
+                   aria-label={isCompacting ? t("chat.stopCompaction") : compactNotNeeded ? t("chat.compactionNotNeeded") : t("chat.compactContext")}
                 >
                   {isCompacting ? (
                     <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
