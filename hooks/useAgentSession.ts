@@ -173,6 +173,12 @@ export interface AgentEndInfo {
   aborted: boolean;
 }
 
+export interface AgentToolEvent {
+  toolCallId: string;
+  toolName: string;
+  status: "started" | "completed" | "failed";
+}
+
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
   sessionRunning?: boolean;
@@ -183,6 +189,7 @@ export interface UseAgentSessionOptions {
   /** 业务数字人仅消费助手正文流，不消费推理或工具参数。 */
   onAssistantTextStart?: () => void;
   onAssistantTextDelta?: (text: string) => void;
+  onToolEvent?: (event: AgentToolEvent) => void;
   /** A top-level tool call finished; the files it touched may have changed. */
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -348,7 +355,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onToolEvent, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
   } = opts;
@@ -1646,6 +1653,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (isNestedToolExecutionEvent(event)) break;
         const id = event.toolCallId as string;
         const name = event.toolName as string;
+        onToolEvent?.({ toolCallId: id, toolName: name, status: "started" });
         setAgentPhase((prev) => {
           const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
           if (!tools.some((t) => t.id === id)) tools.push({ id, name });
@@ -1695,7 +1703,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "tool_execution_end": {
         if (isNestedToolExecutionEvent(event)) break;
         const id = event.toolCallId as string;
-        onToolEnd?.(event.toolName as string);
+        const name = event.toolName as string;
+        onToolEvent?.({ toolCallId: id, toolName: name, status: event.isError ? "failed" : "completed" });
+        onToolEnd?.(name);
         setActiveToolResults((prev) => {
           if (!prev.has(id)) return prev;
           const next = new Map(prev);
@@ -1746,7 +1756,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyContextUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onAssistantTextDelta, onAssistantTextStart, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyContextUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onAssistantTextDelta, onAssistantTextStart, onToolEnd, onToolEvent, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

@@ -23,7 +23,7 @@ import { AnsiText } from "./AnsiText";
 import { BusinessIdleDemo } from "./BusinessIdleDemo";
 import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
-import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentEndInfo, type AgentToolEvent, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -68,6 +68,7 @@ interface Props {
   onAssistantTextStart?: () => void;
   onAssistantTextDelta?: (text: string) => void;
   onAssistantTextEnd?: (end: AgentEndInfo) => void;
+  onToolEvent?: (event: AgentToolEvent) => void;
   /** 仅业务最终回答显示的手动播报入口。 */
   onSpeakAnswer?: (text: string) => void;
   onToolEnd?: (toolName: string) => void;
@@ -97,6 +98,7 @@ interface Props {
   onInitialPromptConsumed?: () => void;
   /** 通过已认证的 RuoYi 父窗口提交的一次性问题。 */
   externalPrompt?: { id: number; text: string } | null;
+  externalPromptReady?: boolean;
   onExternalPromptConsumed?: (id: number) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
@@ -266,7 +268,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, businessMode = false, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onAssistantTextEnd, onSpeakAnswer, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, composerSessionStats, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, externalPrompt, onExternalPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, businessMode = false, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onAssistantTextEnd, onToolEvent, onSpeakAnswer, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, composerSessionStats, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, externalPrompt, externalPromptReady = true, onExternalPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   // 嵌入态直接订阅外观偏好，避免只依赖根 CSS 变量时 HMR/iframe 未及时重绘。
@@ -323,7 +325,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onAssistantTextStart, onAssistantTextDelta, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onAssistantTextStart, onAssistantTextDelta, onToolEvent, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),
@@ -491,11 +493,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const externalPromptSentRef = useRef<number | null>(null);
   useEffect(() => {
-    if (loading || error || !externalPrompt || externalPromptSentRef.current === externalPrompt.id) return;
+    if (!externalPromptReady || loading || error || !externalPrompt || externalPromptSentRef.current === externalPrompt.id) return;
     externalPromptSentRef.current = externalPrompt.id;
     onExternalPromptConsumed?.(externalPrompt.id);
     void handleSend(externalPrompt.text);
-  }, [externalPrompt, loading, error, handleSend, onExternalPromptConsumed]);
+  }, [externalPrompt, externalPromptReady, loading, error, handleSend, onExternalPromptConsumed]);
 
   // One sound when a dialog appears with none on screen. A dialog queued behind
   // another one surfaces the moment the user answers that one, so it stays quiet.

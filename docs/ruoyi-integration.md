@@ -97,6 +97,14 @@ location ^~ /xi-web/ {
 - 会话列表、搜索、运行状态，以及按会话 ID 的读写、SSE、导出和媒体加载都检查该工作目录；跨用户会话返回 404。
 - 侧边栏的置顶、归档和项目显示偏好会按 RuoYi 用户分别保存在 Pi Agent 数据目录，绝不与其他用户共享。
 
+## 工作台 Agent 流程回传
+
+- 已认证的 RuoYi 父页可通过 `qimiao-agent-submit` 提交工作台问题；Pi Web 回传正文开始、正文增量和结束事件，RuoYi 工作台按流更新小锡气泡。
+- 工作台的连续提问在同一个后台 iframe 会话中执行，以保留上下文；RuoYi 只在认证状态失效时重建该 iframe。
+- Pi Web 在 Agent 数据目录按已验证的 RuoYi `userId` 摘要保存工作台固定会话 ID。iframe 完成身份握手后恢复该用户会话；新会话创建或在完整界面显式切换会话时更新映射。恢复与保存均在服务端校验会话属于当前用户工作区，失效映射会清除并回到该用户工作区的新会话。
+- 每个顶层工具开始和结束时，Pi Web 回传 `qimiao-agent-tool`，字段为 `toolCallId`、`toolName` 和 `status`（`started`、`completed`、`failed`）。嵌套工具属于父工具进度，不重复显示。
+- 工具事件只传展示步骤所需的标识、工具名和状态，不传工具参数、调用结果或模型推理；父页仍校验消息来源和字段长度。
+
 ## 二开 UI 基线与上游升级
 
 以下是当前生产界面的约定。升级 Pi Web 时，先以此清单逐项比对；不要直接用上游同名文件覆盖。
@@ -146,7 +154,7 @@ location ^~ /xi-web/ {
 - 形象 iframe 默认使用 `https://live.beta.kim/static/GuideLive.html`，TTS 默认使用同源 `/guide_speech`；如生产环境地址不同，构建时设置 `NEXT_PUBLIC_DH_LIVE_URL` 与 `NEXT_PUBLIC_XIAOXI_TTS_ENDPOINT`。这两个地址属于公开的数字人媒体服务，不能替换为携带 RuoYi 登录令牌的浏览器直连接口。
 - 回答流只将助手正文的 `text_start` / `text_delta` / 完成事件交给数字人；推理内容、工具参数和工具结果不会被播报。中断回答时停止队列，不补播未结束文本。
 - 数字人字幕以正在播放的 TTS 音频时长为进度逐字显示：音频实际开始后气泡淡入，暂停时停止推进、恢复后按当前位置继续；不能在音频请求完成时一次性写入整句字幕和气泡。`prefers-reduced-motion` 下保留逐字内容但取消气泡入场动画。
-- RuoYi 的 `qimiao-web-launcher` 完成切换后应移除旧的 `ArtBotDigitalHuman` 侧栏和对应 `qimiao-agent-response-*` 转发，避免同一回答被两个数字人实例重复播报。系统讲解、文字宠物和跳转 RuoYi 设置仍留在 RuoYi 工作台，不在 Pi Web 中伪造跨应用控制。
+- RuoYi 的 `qimiao-web-launcher` 不再挂载旧的 `ArtBotDigitalHuman` 侧栏；`qimiao-agent-response-*` 转发继续服务工作台文字宠物的回答气泡。Pi Web 数字人的语音/字幕直接消费自身 Agent 正文回调。系统讲解、文字宠物和跳转 RuoYi 设置仍留在 RuoYi 工作台，不在 Pi Web 中伪造跨应用控制。
 
 ### 升级时的最小验证
 

@@ -10,8 +10,12 @@ export type RuoyiSessionAccess = { identity: RuoyiIdentity; workspace: string };
 export type OptionalRuoyiSessionAccess = RuoyiSessionAccess | NextResponse | null;
 
 /** 会话路由必须用此检查归属；只过滤列表不足以形成用户隔离。 */
-export async function requireRuoyiSessionAccess(request: Request, sessionId: string): Promise<RuoyiSessionAccess | NextResponse> {
-  const access = await requireRuoyiChatAccess(request);
+export async function requireRuoyiSessionAccess(
+  request: Request,
+  sessionId: string,
+  currentAccess?: RuoyiSessionAccess,
+): Promise<RuoyiSessionAccess | NextResponse> {
+  const access = currentAccess ?? await requireRuoyiChatAccess(request);
   if (access instanceof NextResponse || access === null) {
     return access ?? NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 500 });
   }

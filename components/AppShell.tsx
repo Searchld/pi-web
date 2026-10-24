@@ -94,6 +94,9 @@ type RuoyiParentMessage = {
   screenY?: number;
   text?: string;
   aborted?: boolean;
+  toolCallId?: string;
+  toolName?: string;
+  status?: "started" | "completed" | "failed";
 };
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
@@ -182,11 +185,34 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         if (!workspaceResponse.ok || !workspace.cwd || ruoyiAuthTokenRef.current !== token) {
           throw new Error("RuoYi workspace unavailable");
         }
+        const sessionResponse = await fetch("/api/ruoyi-workbench/session", {
+          cache: "no-store",
+          headers: getRuoyiAuthorization()
+            ? { "X-RuoYi-Authorization": getRuoyiAuthorization()! }
+            : {},
+          signal: controller.signal,
+        });
+        const savedSession = await sessionResponse.json().catch(() => ({})) as { sessionId?: unknown };
+        if (!sessionResponse.ok || ruoyiAuthTokenRef.current !== token) {
+          throw new Error("RuoYi workbench session unavailable");
+        }
         const params = new URLSearchParams(window.location.search);
-        if (params.get("cwd") !== workspace.cwd) {
+        const sessionId = typeof savedSession.sessionId === "string" ? savedSession.sessionId : null;
+        if (sessionId) {
+          params.delete("cwd");
+          params.set("session", sessionId);
+        } else {
+          params.delete("session");
           params.set("cwd", workspace.cwd);
+        }
+        const nextUrl = `?${params.toString()}`;
+        if (`?${new URLSearchParams(window.location.search).toString()}` !== nextUrl) {
           setInitialNavigation(getInitialNavigation(params));
-          router.replace(`?${params.toString()}`, { scroll: false });
+          setInitialSessionRestored(Boolean(sessionId) ? false : true);
+          router.replace(nextUrl, { scroll: false });
+        } else if (sessionId) {
+          setInitialNavigation(getInitialNavigation(params));
+          setInitialSessionRestored(false);
         }
         ruoyiAuthenticatedRef.current = true;
         setIsRuoyiAuthenticated(true);
@@ -1181,7 +1207,20 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
+  const persistRuoyiWorkbenchSession = useCallback((sessionId: string) => {
+    if (!isRuoyiIntegration) return;
+    void fetch("/api/ruoyi-workbench/session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(getRuoyiAuthorization() ? { "X-RuoYi-Authorization": getRuoyiAuthorization()! } : {}),
+      },
+      body: JSON.stringify({ sessionId }),
+    }).catch(() => {});
+  }, [isRuoyiIntegration]);
+
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
+    if (!isRestore) persistRuoyiWorkbenchSession(session.id);
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
     invalidateWorkspaceRestore();
     const activeDraftKey = activeNewSessionDraftKeyRef.current;
@@ -1235,7 +1274,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     if (!isRestore || new URLSearchParams(window.location.search).get("session") !== session.id) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
+  }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, persistRuoyiWorkbenchSession, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
     invalidateWorkspaceRestore();
@@ -1309,6 +1348,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
     setRefreshKey((k) => k + 1);
+    persistRuoyiWorkbenchSession(session.id);
     if (activeNewSessionDraftKeyRef.current !== sourceDraftKey) return;
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
@@ -1316,7 +1356,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     setSelectedSession(session);
     hydrateSelectedSession(session.id);
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession, persistRuoyiWorkbenchSession]);
 
   const deliverSessionNotification = useCallback(({
     targetSession,
@@ -3082,6 +3122,14 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                 }
                 postRuoyiParentMessage({ type: "qimiao-agent-response-end", aborted: end.aborted });
               }}
+              onToolEvent={(event) => {
+                postRuoyiParentMessage({
+                  type: "qimiao-agent-tool",
+                  toolCallId: event.toolCallId,
+                  toolName: event.toolName,
+                  status: event.status,
+                });
+              }}
               onSpeakAnswer={isRuoyiIntegration ? handleSpeakAnswer : undefined}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
@@ -3106,6 +3154,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
               onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
               externalPrompt={ruoyiExternalPrompt}
+              externalPromptReady={initialSessionRestored}
               onExternalPromptConsumed={(id) => {
                 setRuoyiExternalPrompt((current) => current?.id === id ? null : current);
               }}

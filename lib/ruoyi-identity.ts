@@ -108,3 +108,9 @@ export function ruoyiSessionUiStatePath(userId: string): string {
   const digest = createHash("sha256").update(userId).digest("hex");
   return join(getAgentDir(), "pi-web-ruoyi-session-state", `${digest}.json`);
 }
+
+/** 工作台机器人固定会话按已验证的 RuoYi 用户分别保存。 */
+export function ruoyiWorkbenchSessionPath(userId: string): string {
+  const digest = createHash("sha256").update(userId).digest("hex");
+  return join(getAgentDir(), "pi-web-ruoyi-workbench-sessions", `${digest}.json`);
+}
