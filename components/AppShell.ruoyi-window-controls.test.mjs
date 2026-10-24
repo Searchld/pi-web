@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
 test("RuoYi iframe 顶部工具栏请求父窗口拖动和全屏", () => {
   assert.match(source, /qimiao-dialog-drag-start/);
@@ -34,6 +35,18 @@ test("RuoYi 认证请求中止后允许同一令牌重试", () => {
   assert.match(source, /const currentController = ruoyiAuthAbortRef\.current;/);
   assert.match(source, /token === ruoyiAuthTokenRef\.current && !currentController\?\.signal\.aborted/);
   assert.match(source, /currentController\?\.abort\(\);/);
+});
+
+test("RuoYi 认证后可从父窗口提交问题并回传回复正文", () => {
+  assert.match(source, /event\.data\?\.type === "qimiao-agent-submit"/);
+  assert.match(source, /ruoyiAuthenticatedRef\.current/);
+  assert.match(source, /setRuoyiExternalPrompt\(\{ id: ruoyiPromptSequenceRef\.current, text: event\.data\.text\.trim\(\) \}\)/);
+  assert.match(source, /qimiao-agent-response-start/);
+  assert.match(source, /qimiao-agent-response-delta/);
+  assert.match(source, /qimiao-agent-response-end/);
+  assert.match(source, /if \(!isHeadlessRuoyi\) digitalHumanRef\.current\?\.start\(\)/);
+  assert.match(chatWindowSource, /externalPromptSentRef\.current === externalPrompt\.id/);
+  assert.match(chatWindowSource, /void handleSend\(externalPrompt\.text\)/);
 });
 
 test("RuoYi 会话统计不展示本机路径和会话标识", () => {

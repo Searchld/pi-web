@@ -2629,7 +2629,7 @@ export async function startRpcSession(
       // tool registry — so they were unavailable in Pi Web sessions even though the
       // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
       // tools (and activate extension tools); we narrow the ACTIVE set below.
-      toolsOption = selectedToolNames.length === 0 ? [] : undefined;
+      toolsOption = selectedToolNames.length === 0 && !ruoyiExtensionsEnabled ? [] : undefined;
     }
 
     // Build services first so extension-registered providers are available

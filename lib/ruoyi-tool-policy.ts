@@ -11,6 +11,7 @@ const codingToolNameSet = new Set<string>(RUOYI_CODING_TOOL_NAMES);
 const subagentToolNameSet = new Set<string>(RUOYI_SUBAGENT_TOOL_NAMES);
 const settingsSectionNameSet = new Set<string>(RUOYI_SETTINGS_SECTION_NAMES);
 const skillNameSet = new Set<string>(RUOYI_SKILL_NAMES);
+const channelCodingToolNameSet = new Set(["read", "grep", "find", "ls"]);
 const POLICY_TIMEOUT_MS = 5_000;
 
 export type RuoyiAgentPolicy = {
@@ -23,6 +24,18 @@ export type RuoyiAgentPolicy = {
 };
 
 export class RuoyiToolAuthorizationError extends Error {}
+
+/** 企业微信通道只保留只读编码工具和业务查询工具，不开放写入、终端与子代理。 */
+export function toRuoyiChannelPolicy(policy: RuoyiAgentPolicy): RuoyiAgentPolicy {
+  return {
+    chatEnabled: policy.chatEnabled,
+    toolNames: policy.toolNames.filter((name) => channelCodingToolNameSet.has(name)),
+    businessToolsEnabled: policy.businessToolsEnabled,
+    subagentToolNames: [],
+    settingsSections: [],
+    skillNames: [],
+  };
+}
 
 function baseUrl(): string {
   const value = process.env.RUOYI_API_BASE_URL?.trim().replace(/\/+$/, "");

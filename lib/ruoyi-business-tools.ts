@@ -35,7 +35,7 @@ function baseUrl(): string {
 function normalizeAuthorization(value: string | undefined): string | undefined {
   const authorization = value?.trim();
   if (!authorization) return undefined;
-  return /^Bearer\s+/i.test(authorization) ? authorization : `Bearer ${authorization}`;
+  return /^(?:Bearer|Agent)\s+/i.test(authorization) ? authorization : `Bearer ${authorization}`;
 }
 
 async function ruoyiRequest(

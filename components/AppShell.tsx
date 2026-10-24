@@ -88,6 +88,13 @@ type AutoNameStatus =
   | { kind: "naming" }
   | { kind: "success" }
   | { kind: "error"; message: string };
+type RuoyiParentMessage = {
+  type: string;
+  screenX?: number;
+  screenY?: number;
+  text?: string;
+  aborted?: boolean;
+};
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
@@ -110,12 +117,16 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const router = useRouter();
   const searchParams = useSearchParams();
   const isEmbeddedRuoyi = searchParams.get("embedded") === "1";
+  const isHeadlessRuoyi = searchParams.get("headless") === "1";
   const activeToolbarBackground = isRuoyiIntegration ? "#ecf5ff" : "var(--bg-selected)";
   const activeToolbarColor = isRuoyiIntegration ? "#409eff" : "var(--text)";
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
   const [isRuoyiAuthenticated, setIsRuoyiAuthenticated] = useState(() => !isEmbeddedRuoyi);
+  const [ruoyiExternalPrompt, setRuoyiExternalPrompt] = useState<{ id: number; text: string } | null>(null);
   const ruoyiAuthTokenRef = useRef<string | null>(null);
   const ruoyiAuthAbortRef = useRef<AbortController | null>(null);
+  const ruoyiAuthenticatedRef = useRef(!isEmbeddedRuoyi);
+  const ruoyiPromptSequenceRef = useRef(0);
   const ruoyiParentOriginRef = useRef<string | null>(null);
   const getRuoyiParentOrigin = useCallback(() => {
     if (ruoyiParentOriginRef.current) return ruoyiParentOriginRef.current;
@@ -126,7 +137,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       return null;
     }
   }, []);
-  const postRuoyiParentMessage = useCallback((message: { type: string; screenX?: number; screenY?: number }) => {
+  const postRuoyiParentMessage = useCallback((message: RuoyiParentMessage) => {
     if (window.parent === window) return;
     const origin = getRuoyiParentOrigin();
     if (origin) window.parent.postMessage(message, origin);
@@ -147,6 +158,8 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       const controller = new AbortController();
       ruoyiAuthAbortRef.current = controller;
       ruoyiAuthTokenRef.current = token;
+      ruoyiAuthenticatedRef.current = false;
+      setRuoyiExternalPrompt(null);
       setIsRuoyiAuthenticated(false);
       setRuoyiAuthorization(token);
       try {
@@ -175,18 +188,33 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           setInitialNavigation(getInitialNavigation(params));
           router.replace(`?${params.toString()}`, { scroll: false });
         }
+        ruoyiAuthenticatedRef.current = true;
         setIsRuoyiAuthenticated(true);
         notifyParent("qimiao-authenticated");
       } catch {
-        if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) notifyParent("qimiao-auth-failed");
+        if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) {
+          ruoyiAuthenticatedRef.current = false;
+          notifyParent("qimiao-auth-failed");
+        }
       }
     };
     const receive = (event: MessageEvent) => {
       if (window.parent === window || event.source !== window.parent) return;
       if (!RUOYI_EMBED_ORIGINS.includes(event.origin)) return;
-      if (event.data?.type !== "qimiao-auth" || typeof event.data.token !== "string" || !event.data.token.trim()) return;
       ruoyiParentOriginRef.current = event.origin;
-      void establish(event.data.token);
+      if (event.data?.type === "qimiao-auth" && typeof event.data.token === "string" && event.data.token.trim()) {
+        void establish(event.data.token);
+        return;
+      }
+      if (
+        event.data?.type === "qimiao-agent-submit" &&
+        ruoyiAuthenticatedRef.current &&
+        typeof event.data.text === "string" &&
+        event.data.text.trim()
+      ) {
+        ruoyiPromptSequenceRef.current += 1;
+        setRuoyiExternalPrompt({ id: ruoyiPromptSequenceRef.current, text: event.data.text.trim() });
+      }
     };
     window.addEventListener("message", receive);
     if (window.parent !== window && RUOYI_EMBED_ORIGINS.length > 0) {
@@ -506,7 +534,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     startY: number;
     dragging: boolean;
   } | null>(null);
-  const postRuoyiDialogEvent = useCallback((message: { type: string; screenX?: number; screenY?: number }) => {
+  const postRuoyiDialogEvent = useCallback((message: RuoyiParentMessage) => {
     postRuoyiParentMessage(message);
   }, [postRuoyiParentMessage]);
   const isRuoyiToolbarWindowGesture = useCallback((target: EventTarget | null) => {
@@ -3039,11 +3067,20 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
               onAgentEnd={handleAgentEnd}
-              onAssistantTextStart={() => digitalHumanRef.current?.start()}
-              onAssistantTextDelta={(text) => digitalHumanRef.current?.append(text)}
+              onAssistantTextStart={() => {
+                if (!isHeadlessRuoyi) digitalHumanRef.current?.start();
+                postRuoyiParentMessage({ type: "qimiao-agent-response-start" });
+              }}
+              onAssistantTextDelta={(text) => {
+                if (!isHeadlessRuoyi) digitalHumanRef.current?.append(text);
+                postRuoyiParentMessage({ type: "qimiao-agent-response-delta", text });
+              }}
               onAssistantTextEnd={(end) => {
-                if (end.aborted) digitalHumanRef.current?.stop();
-                else digitalHumanRef.current?.finish();
+                if (!isHeadlessRuoyi) {
+                  if (end.aborted) digitalHumanRef.current?.stop();
+                  else digitalHumanRef.current?.finish();
+                }
+                postRuoyiParentMessage({ type: "qimiao-agent-response-end", aborted: end.aborted });
               }}
               onSpeakAnswer={isRuoyiIntegration ? handleSpeakAnswer : undefined}
               onToolEnd={handleToolEnd}
@@ -3068,6 +3105,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               quoteSelectionEnabled={quoteSelectionEnabled}
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
               onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
+              externalPrompt={ruoyiExternalPrompt}
+              onExternalPromptConsumed={(id) => {
+                setRuoyiExternalPrompt((current) => current?.id === id ? null : current);
+              }}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}

@@ -53,6 +53,7 @@ app/api/
   agent/[id]/route.ts              GET state | POST any command
   agent/[id]/events/route.ts       GET SSE stream
   agent/running/route.ts           GET running + awaiting-input session ids, sidebar pins/archive revision
+  ruoyi-channel/chat/route.ts      POST one authenticated headless RuoYi channel prompt and return its final answer
   auth/api-key/[provider]/route.ts POST/DELETE stored provider API key
   auth/login/[provider]/route.ts   GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts  POST OAuth logout
@@ -100,6 +101,7 @@ app/api/
 lib/
   agent-client.ts           typed fetch helper for /api/agent commands
   rpc-manager.ts            AgentSessionWrapper, registry, startRpcSession
+  ruoyi-channel.ts          serialized headless RuoYi channel runs and final-answer collection
   session-reader.ts         SessionManager wrappers, path cache, buildSessionContext adapter
   session-fork.ts           forkSessionBranch(): the sidebar's Fork, a leaf-branch copy on a fresh SessionManager named after its source, typed refusals
   session-fork-name.ts      client-safe Fork naming: source title + " · " + 4 hex; splitting the suffix off for the row and toast

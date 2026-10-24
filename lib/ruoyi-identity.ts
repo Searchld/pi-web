@@ -26,7 +26,7 @@ function baseUrl(): string | undefined {
 function normalizeAuthorization(value: string | undefined): string | undefined {
   const token = value?.trim();
   if (!token) return undefined;
-  return /^Bearer\s+/i.test(token) ? token : `Bearer ${token}`;
+  return /^(?:Bearer|Agent)\s+/i.test(token) ? token : `Bearer ${token}`;
 }
 
 export function isRuoyiIntegrationEnabled(): boolean {
@@ -34,7 +34,9 @@ export function isRuoyiIntegrationEnabled(): boolean {
 }
 
 export function readRuoyiAuthorization(request: Request): string | undefined {
-  const header = request.headers.get("x-ruoyi-authorization") ?? undefined;
+  const header = request.headers.get("x-ruoyi-authorization")
+    ?? request.headers.get("authorization")
+    ?? undefined;
   if (header) return normalizeAuthorization(header);
   const value = request.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${RUOYI_TOKEN_COOKIE}=([^;]+)`))?.[1];
   if (!value) return undefined;
