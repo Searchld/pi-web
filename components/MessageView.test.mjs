@@ -138,6 +138,13 @@ test("renders business tool calls as compact run steps without usage details", (
   assert.doesNotMatch(html, /\$0\.0002/);
 });
 
+test("keeps business process rows on one compact spacing rhythm", () => {
+  const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /flexDirection: "column", gap: businessMode \? 4 : 8/);
+  assert.match(source, /padding: businessMode \? "2px" : "6px 10px"/);
+});
+
 test("renders expanded business tool parameters as an unframed single line", () => {
   const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
   assert.match(source, /const displayedInput = businessMode && !codemode \? formatBusinessToolInput\(inputStr\) : inputStr/);

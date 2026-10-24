@@ -30,6 +30,12 @@ test("RuoYi 工作区校验期间不暴露工作区路径", () => {
   assert.match(source, /!isRuoyiIntegration && \(/);
 });
 
+test("RuoYi 认证请求中止后允许同一令牌重试", () => {
+  assert.match(source, /const currentController = ruoyiAuthAbortRef\.current;/);
+  assert.match(source, /token === ruoyiAuthTokenRef\.current && !currentController\?\.signal\.aborted/);
+  assert.match(source, /currentController\?\.abort\(\);/);
+});
+
 test("RuoYi 会话统计不展示本机路径和会话标识", () => {
   assert.match(source, /const showSessionDiagnostics = !isRuoyiIntegration;/);
   assert.match(source, /showSessionDiagnostics \? \[/);
@@ -40,6 +46,11 @@ test("RuoYi 会话统计以紧凑双列弹层展示", () => {
   assert.match(source, /width: "min\(560px, 100%\)"/);
   assert.match(source, /marginLeft: "auto"/);
   assert.match(source, /gridTemplateColumns: "minmax\(120px, 0\.65fr\) minmax\(220px, 1\.35fr\)"/);
+});
+
+test("桌面会话统计移入输入框控制区，顶栏操作仍靠右", () => {
+  assert.match(source, /composerSessionStats=\{isMobile \? undefined : renderSessionStatsButton\(false, "composer"\)\}/);
+  assert.match(source, /const renderOpenSessionInNewTab[\s\S]*?marginLeft: mobile \? 0 : "auto"/);
 });
 
 test("RuoYi 会话栏展开时把折叠键放在侧栏标题行", () => {
@@ -53,12 +64,28 @@ test("RuoYi 会话栏展开时把折叠键放在侧栏标题行", () => {
 
 test("RuoYi 文件浏览器在右侧面板并与预览并排", () => {
   assert.match(source, /filesInRightPanel=\{isRuoyiIntegration\}/);
-  assert.doesNotMatch(source, /if \(isRuoyiIntegration && !isMobile\) setRightPanelExpanded\(true\);/);
   assert.match(source, /className=\{`ruoyi-file-workbench/);
   assert.match(source, /className="ruoyi-file-viewer"/);
   assert.match(source, /className="ruoyi-file-browser"/);
+  assert.match(source, /className="ruoyi-file-panel-title"/);
   assert.match(source, /<FileExplorer/);
   assert.match(source, /const renderMainFileToggle[\s\S]*?<FolderIcon size=\{18\} \/>/);
+});
+
+test("RuoYi 打开文件自动展开预览面板", () => {
+  assert.match(source, /setRightPanelOpen\(true\);\s*\/\/ RuoYi 的文件树与预览共用右侧栏；打开文件时自动展开，避免预览被树挤出视口。\s*if \(isRuoyiIntegration && !isMobile\) setRightPanelExpanded\(true\);/);
+});
+
+test("RuoYi 文件浏览器保留文件操作栏", () => {
+  assert.match(source, /const rightFileExplorerRef = useRef<FileExplorerHandle>\(null\)/);
+  assert.match(source, /const renderRuoyiFileActions/);
+  assert.match(source, /\{isRuoyiIntegration && renderRuoyiFileActions\(\)\}/);
+  assert.match(source, /<UploadIcon size=\{15\} \/>/);
+  assert.match(source, /<RefreshIcon size=\{15\} \/>/);
+  assert.match(source, /<EyeIcon size=\{15\} \/>/);
+  assert.match(source, /<ChangesIcon size=\{15\} \/>/);
+  assert.match(source, /<SearchIcon size=\{15\} \/>/);
+  assert.match(source, /showHidden=\{rightExplorerShowIgnoredFiles\}/);
 });
 
 test("RuoYi 打开文件面板时隐藏并在关闭时恢复数字人", () => {

@@ -901,7 +901,7 @@ function AssistantMessageView({
         })()}
       </div>}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: businessMode ? 4 : 8 }}>
         {/* Not keyed by the entry id: a message of this run gets one when the file is
             read again, and its blocks keep their state across that read (#1184). */}
         {blockItems.map(({ block, originalIndex }) => (
@@ -1186,7 +1186,7 @@ export function ThinkingBlock({ block, duration, businessMode, sessionId, entryI
       display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0,
       border: "1px solid var(--border)",
       borderRadius: 7,
-      padding: "6px 10px",
+      padding: businessMode ? "2px" : "6px 10px",
       background: "var(--bg)",
       fontFamily: "var(--font-mono)",
       fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
@@ -1338,7 +1338,7 @@ function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }
             gap: businessMode ? 8 : 7,
             flex: 1,
             minWidth: 0,
-            padding: businessMode ? "5px 2px" : "6px 10px",
+            padding: businessMode ? "2px" : "6px 10px",
             background: "none",
             border: "none",
             color: "var(--text-muted)",

@@ -5,8 +5,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useI18n } from "@/hooks/useI18n";
 import { setTerminalTheme, useTerminalTheme } from "@/hooks/useTerminalTheme";
-import { subscribeFontPreferences } from "@/hooks/useFontPreferences";
-import { readFontWeight } from "@/lib/font-preferences";
 import { createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
 import {
   applyTerminalModifiers,
@@ -20,6 +18,9 @@ import type { TerminalEvent } from "@/lib/terminal-manager";
 import { TERMINAL_XTERM_THEMES } from "@/lib/terminal-theme";
 import { TerminalExtraKeys, useTerminalExtraKeysVisible } from "./TerminalExtraKeys";
 import type { TerminalTab } from "./terminal-tab-state";
+
+// xterm 按固定单元格排版，不能继承业务正文的比例字体。
+const TERMINAL_FONT_FAMILY = '"SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
 interface Props {
   tab: TerminalTab;
@@ -82,17 +83,10 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     setError(null);
     setExitCode(null);
 
-    const readTerminalFont = () => {
-      const style = getComputedStyle(container);
-      return {
-        fontFamily: style.getPropertyValue("--font-mono").trim() || "monospace",
-        // Base weights stop at 600, so xterm's default bold (700) stays heavier.
-        fontWeight: readFontWeight(style.getPropertyValue("--font-mono-weight")),
-      };
-    };
     const terminal = new Terminal({
       cursorBlink: true,
-      ...readTerminalFont(),
+      fontFamily: TERMINAL_FONT_FAMILY,
+      fontWeight: 400,
       fontSize: 13,
       lineHeight: 1.25,
       scrollback: 8000,
@@ -133,15 +127,6 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     });
     const resizeObserver = new ResizeObserver(fitAndResize);
     resizeObserver.observe(container);
-    const updateFont = () => {
-      if (disposed) return;
-      const font = readTerminalFont();
-      terminal.options.fontFamily = font.fontFamily;
-      terminal.options.fontWeight = font.fontWeight;
-      fitAndResize();
-    };
-    const unsubscribeFonts = subscribeFontPreferences(updateFont);
-
     const connect = () => {
       if (disposed || exited || !navigator.onLine) return;
       events?.close();
@@ -214,7 +199,6 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       events?.close();
       void writer.stop();
       resizeObserver.disconnect();
-      unsubscribeFonts();
       onData.dispose();
       onResize.dispose();
       window.removeEventListener("pagehide", pageHide);

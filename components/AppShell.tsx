@@ -7,9 +7,9 @@ import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl }
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
-import { FileExplorer } from "./FileExplorer";
+import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { FileViewer } from "./FileViewer";
-import { FolderIcon } from "./SidebarIcons";
+import { ChangesIcon, EyeIcon, FolderIcon, OpenInNewTabIcon, RefreshIcon, SearchIcon, TerminalIcon, UploadIcon } from "./SidebarIcons";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/browser-notifications";
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
+import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
 import { getDraft, rekeyDraft } from "@/lib/draft-store";
@@ -139,8 +140,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       postRuoyiParentMessage({ type });
     };
     const establish = async (token: string) => {
-      if (token === ruoyiAuthTokenRef.current) return;
-      ruoyiAuthAbortRef.current?.abort();
+      const currentController = ruoyiAuthAbortRef.current;
+      // iframe 重挂载或开发环境的 effect 重放会中止旧请求；同一令牌此时必须重试。
+      if (token === ruoyiAuthTokenRef.current && !currentController?.signal.aborted) return;
+      currentController?.abort();
       const controller = new AbortController();
       ruoyiAuthAbortRef.current = controller;
       ruoyiAuthTokenRef.current = token;
@@ -374,6 +377,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [digitalHumanVisibilityReady, setDigitalHumanVisibilityReady] = useState(!isRuoyiIntegration);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const [rightFileSearchOpen, setRightFileSearchOpen] = useState(false);
+  const [rightExplorerUploadBusy, setRightExplorerUploadBusy] = useState(false);
+  const [rightExplorerChangesCollapsed, setRightExplorerChangesCollapsed] = useState(true);
+  const [rightExplorerChangesCount, setRightExplorerChangesCount] = useState(0);
+  const [rightExplorerShowIgnoredFiles, setRightExplorerShowIgnoredFiles] = useState(false);
+  const rightFileExplorerRef = useRef<FileExplorerHandle>(null);
   const rightPanelWasOpenRef = useRef(false);
   const rightPanelOpenRef = useRef(false);
   const digitalHumanHiddenByFilePanelRef = useRef(false);
@@ -1492,9 +1500,11 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     }));
     setActiveFileTabId(tabId);
     setRightPanelOpen(true);
+    // RuoYi 的文件树与预览共用右侧栏；打开文件时自动展开，避免预览被树挤出视口。
+    if (isRuoyiIntegration && !isMobile) setRightPanelExpanded(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
+  }, [isMobile, isRuoyiIntegration]);
 
   const handleOpenLinkedFile = useCallback((filePath: string, page?: number) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null, page });
@@ -1718,6 +1728,70 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   useEffect(() => {
     setRightFileSearchOpen(false);
   }, [rightExplorerCwd]);
+  const renderRuoyiFileActions = () => (
+    <div className="ruoyi-file-actions" role="group" aria-label={translate("sidebar.fileActions")}>
+      {terminalAccess.allowed && (
+        <button
+          type="button"
+          onClick={() => { if (rightExplorerCwd) handleOpenTerminal(rightExplorerCwd); }}
+          disabled={!rightExplorerCwd}
+          title={translate("terminal.open")}
+          aria-label={translate("terminal.open")}
+        >
+          <TerminalIcon size={15} />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => rightFileExplorerRef.current?.openUploadPicker()}
+        disabled={!rightExplorerCwd || rightExplorerUploadBusy}
+        title={translate("sidebar.uploadFilesTitle")}
+        aria-label={translate("sidebar.uploadFilesTitle")}
+      >
+        <UploadIcon size={15} />
+      </button>
+      <button
+        type="button"
+        onClick={handleExplorerRefresh}
+        disabled={!rightExplorerCwd}
+        title={translate("sidebar.refreshExplorer")}
+        aria-label={translate("sidebar.refreshExplorer")}
+      >
+        <RefreshIcon size={15} />
+      </button>
+      <button
+        type="button"
+        onClick={() => setRightExplorerShowIgnoredFiles((shown) => !shown)}
+        disabled={!rightExplorerCwd}
+        title={translate("sidebar.showIgnoredFiles")}
+        aria-label={translate("sidebar.showIgnoredFiles")}
+        aria-pressed={rightExplorerShowIgnoredFiles}
+      >
+        <EyeIcon size={15} />
+      </button>
+      <button
+        type="button"
+        onClick={() => setRightExplorerChangesCollapsed((collapsed) => !collapsed)}
+        disabled={!rightExplorerCwd || rightExplorerChangesCount === 0}
+        title={translate("sidebar.changedFiles", { count: rightExplorerChangesCount })}
+        aria-label={translate("sidebar.changedFiles", { count: rightExplorerChangesCount })}
+        aria-pressed={rightExplorerChangesCount > 0 && !rightExplorerChangesCollapsed}
+      >
+        <ChangesIcon size={15} />
+      </button>
+      <button
+        type="button"
+        onClick={() => setRightFileSearchOpen((open) => !open)}
+        disabled={!rightExplorerCwd}
+        title={translate("sidebar.searchFiles")}
+        aria-label={translate("sidebar.searchFiles")}
+        aria-expanded={rightFileSearchOpen}
+        aria-controls="file-search-input"
+      >
+        <SearchIcon size={15} />
+      </button>
+    </div>
+  );
   const panelTabContent = (
     <>
       {activeFileTab?.filePath ? (
@@ -2122,8 +2196,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     );
   };
 
-  const renderSessionStatsButton = (mobile: boolean) => {
+  const renderSessionStatsButton = (mobile: boolean, placement: "top" | "composer" = "top") => {
     if (!mobile && (!showChat || (!sessionStats && !contextUsage))) return null;
+
+    const inComposer = placement === "composer";
 
     const tokens = sessionStats?.tokens;
     const cost = sessionStats?.cost ?? 0;
@@ -2176,20 +2252,21 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         className={mobile ? "mobile-session-stats" : undefined}
         data-mobile-toolbar-stats={mobile ? "true" : undefined}
         style={{
-          marginLeft: mobile ? 0 : "auto",
+          marginLeft: mobile ? 0 : inComposer ? 0 : "auto",
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           flex: mobile ? 1 : undefined,
           minWidth: 0,
-          gap: mobile ? 7 : 10,
-          paddingLeft: mobile ? 6 : 12,
-          paddingRight: mobile ? 6 : 12,
-          height: "100%",
+          gap: mobile ? 7 : inComposer ? 8 : 10,
+          paddingLeft: mobile ? 6 : inComposer ? 4 : 12,
+          paddingRight: mobile ? 6 : inComposer ? 4 : 12,
+          height: inComposer ? 32 : "100%",
           overflow: "hidden",
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
           background: activeTopPanel === "session" ? activeToolbarBackground : "none",
           border: "none",
-          borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
+          borderTop: inComposer ? "none" : activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
+          borderRadius: inComposer ? 6 : 0,
           fontSize: 11, color: "var(--text-muted)",
           whiteSpace: "nowrap", cursor: showChat ? "pointer" : "default",
           fontVariantNumeric: "tabular-nums",
@@ -2296,7 +2373,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         data-mobile-toolbar-file={mobile ? "true" : undefined}
         style={{
-          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
+          marginLeft: 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
@@ -2310,6 +2387,48 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? activeToolbarColor : "var(--text-muted)"; }}
       >
         <FolderIcon size={18} />
+      </button>
+    );
+  };
+
+  const renderOpenSessionInNewTab = (mobile: boolean) => {
+    const target = selectedSession && !selectedSession.transient
+      ? sessionDeepLink(selectedSession.id)
+      : effectiveNewSessionCwd
+        ? newSessionDeepLink(effectiveNewSessionCwd)
+        : null;
+    const disabled = target === null;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          if (!target) return;
+          window.open(target, "_blank", "noopener,noreferrer");
+        }}
+        disabled={disabled}
+        title={translate("sidebar.openInNewTab")}
+        aria-label={translate("sidebar.openInNewTab")}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+          height: TOP_BAR_ICON_BUTTON_SIZE, padding: mobile ? 0 : "0 12px",
+          marginLeft: mobile ? 0 : "auto",
+          background: "none",
+          border: "none", borderLeft: "1px solid var(--border)",
+          color: disabled ? "var(--text-dim)" : "var(--text-muted)",
+          cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0,
+          opacity: disabled ? 0.45 : 1, fontSize: 11, whiteSpace: "nowrap",
+          transition: "color 0.12s, background 0.12s, opacity 0.12s",
+        }}
+        onMouseEnter={(event) => {
+          if (!disabled) event.currentTarget.style.color = "var(--text)";
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = disabled ? "var(--text-dim)" : "var(--text-muted)";
+        }}
+      >
+        <OpenInNewTabIcon size={17} />
+        {!mobile && <span>{translate("sidebar.openInNewTab")}</span>}
       </button>
     );
   };
@@ -2592,6 +2711,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               )}
               {!isNarrowMobile && renderChatToolbarActions(true)}
               {renderSessionStatsButton(true)}
+              {renderOpenSessionInNewTab(true)}
               {renderMainFileToggle(true)}
               {renderDigitalHumanToggle(true)}
               {isNarrowMobile && mobileToolbarMoreOpen && (
@@ -2623,9 +2743,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             <>
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
-              {renderSessionStatsButton(false)}
             </>
           )}
+          {!isMobile && renderOpenSessionInNewTab(false)}
           {!isMobile && renderMainFileToggle(false)}
           {!isMobile && renderDigitalHumanToggle(false)}
           {isMobile && sessionHasBranches && (
@@ -2938,6 +3058,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               onSystemInfoLoaderChange={handleSystemInfoLoaderChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
+              composerSessionStats={isMobile ? undefined : renderSessionStatsButton(false, "composer")}
               onOpenSettings={openSettingsSection}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
@@ -3041,14 +3162,19 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           borderBottom: "1px solid var(--border)",
         }}>
           <div style={{ flex: 1, overflow: "hidden" }}>
-            <TabBar
-              tabs={panelTabs}
-              activeTabId={activeFileTabId ?? ""}
-              onSelectTab={setActiveFileTabId}
-              onCloseTab={handleCloseFileTab}
-              background={isRuoyiIntegration ? "var(--bg)" : undefined}
-            />
+            {isRuoyiIntegration && !activePanelHasContent ? (
+              <div className="ruoyi-file-panel-title">{translate("sidebar.tabFiles")}</div>
+            ) : (
+              <TabBar
+                tabs={panelTabs}
+                activeTabId={activeFileTabId ?? ""}
+                onSelectTab={setActiveFileTabId}
+                onCloseTab={handleCloseFileTab}
+                background={isRuoyiIntegration ? "var(--bg)" : undefined}
+              />
+            )}
           </div>
+          {isRuoyiIntegration && renderRuoyiFileActions()}
           <button
             type="button"
             className="file-panel-expand-button"
@@ -3101,32 +3227,21 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
             <div className={`ruoyi-file-workbench${activePanelHasContent ? " is-viewing" : ""}`}>
               {activePanelHasContent && <div className="ruoyi-file-viewer">{panelTabContent}</div>}
               <aside className="ruoyi-file-browser" aria-label={translate("sidebar.tabFiles")}>
-                <div className="ruoyi-file-browser-head">
-                  <span>{translate("sidebar.tabFiles")}</span>
-                  <button
-                    type="button"
-                    onClick={() => setRightFileSearchOpen((open) => !open)}
-                    title={translate("sidebar.searchFiles")}
-                    aria-label={translate("sidebar.searchFiles")}
-                    aria-expanded={rightFileSearchOpen}
-                    aria-controls="file-search-input"
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
-                    </svg>
-                  </button>
-                </div>
                 <div className="ruoyi-file-browser-scroll scrollbar-subtle">
                   {rightExplorerCwd ? (
                     <FileExplorer
+                      ref={rightFileExplorerRef}
                       cwd={rightExplorerCwd}
                       onOpenFile={handleOpenFile}
                       refreshKey={explorerRefreshKey}
                       onAtMention={handleAtMention}
                       onAtMentions={handleAtMentions}
-                      changesCollapsed
+                      onUploadBusyChange={setRightExplorerUploadBusy}
+                      changesCollapsed={rightExplorerChangesCollapsed}
+                      onChangesCountChange={setRightExplorerChangesCount}
                       fileSearchOpen={rightFileSearchOpen}
                       onFileSearchOpenChange={setRightFileSearchOpen}
+                      showHidden={rightExplorerShowIgnoredFiles}
                     />
                   ) : (
                     <div className="ruoyi-file-browser-empty">{translate("sidebar.selectProject")}</div>

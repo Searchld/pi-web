@@ -101,6 +101,8 @@ interface Props {
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
+  /** 由外层提供的会话统计入口，显示在桌面端输入框控制区。 */
+  sessionStatsControl?: React.ReactNode;
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
@@ -670,6 +672,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
+  sessionStatsControl,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -2513,6 +2516,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             position: "relative",
             marginLeft: isMobile ? 0 : "auto",
           }}>
+            {sessionStatsControl}
             {isMobile && (
               <button
                 type="button"

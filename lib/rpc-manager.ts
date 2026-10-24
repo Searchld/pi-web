@@ -59,6 +59,7 @@ import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension, createSu
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
+import { createDestructiveCommandGuard } from "./destructive-command-guard";
 import { createRuoyiWorkspaceToolGuard } from "./ruoyi-workspace-tool-guard";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
@@ -2678,6 +2679,7 @@ export async function startRpcSession(
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
     const subagentExtensionFactories = [
+      createDestructiveCommandGuard(),
       ...(subagentCodemode ? [subagentCodemode] : []),
       ...(subagentMcp && subagentResources
         ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
@@ -2724,6 +2726,7 @@ export async function startRpcSession(
               disabledBuiltinExtensions: ["mcp", "codemode", "tool-search"],
               extensionFactories: [
                 exactSystemPromptExtension,
+                createDestructiveCommandGuard(),
                 createRuoyiWorkspaceToolGuard(sessionCwd, ruoyiSkillFiles),
                 ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
                   () => ruoyiAuthorizationRef.current,
@@ -2745,6 +2748,7 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              createDestructiveCommandGuard(),
               ...(ruoyiAuthorizationRef && ruoyiPolicyRef?.current.businessToolsEnabled ? [createRuoyiBusinessToolsExtension(
                 () => ruoyiAuthorizationRef.current,
                 (tools) => {
