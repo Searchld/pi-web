@@ -491,7 +491,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.uiStateFailed": "儲存失敗：{error}",
     "sidebar.sessionNotFound": "此工作階段已不存在",
     "sidebar.fork": "分叉",
-    "sidebar.openInNewTab": "在新分頁開啟",
+    "sidebar.openInNewTab": "新分頁開啟",
     "sidebar.forkedToast": "已分叉「{title}」",
     "sidebar.forkNotFound": "此工作階段已不存在",
     "sidebar.forkUnsaved": "此工作階段尚未儲存，請先傳送一則訊息。",

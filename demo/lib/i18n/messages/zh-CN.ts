@@ -148,7 +148,7 @@ export const zhCNLocale: LocalePlugin = {
     "tools.details": "工具定义详情",
     "tools.load": "工具定义尚未加载",
     "tools.loading": "正在加载工具定义…",
-    "tools.noTools": "没有启用的工具",
+    "tools.noTools": "没有启用的工具，请联系管理员。",
     "tools.description": "描述",
     "tools.parameters": "参数",
     "tools.parameterCount": "{count} 个参数",

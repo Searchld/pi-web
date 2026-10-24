@@ -46,7 +46,7 @@ export async function requireRuoyiChatAccess(request: Request): Promise<RuoyiPol
   const access = await requireRuoyiPolicy(request);
   if (access instanceof NextResponse || access === null) return access;
   if (!access.policy.chatEnabled) {
-    return NextResponse.json({ error: "当前账户未获得 Agent 使用权限" }, { status: 403 });
+    return NextResponse.json({ error: "当前账户未获得 Agent 使用权限，请联系管理员。" }, { status: 403 });
   }
   return access;
 }
@@ -59,7 +59,7 @@ export async function requireRuoyiToolAccess(
   const access = await requireRuoyiChatAccess(request);
   if (access instanceof NextResponse || access === null) return access;
   if (!access.policy.toolNames.includes(toolName)) {
-    return NextResponse.json({ error: "当前账户未获得该工具权限" }, { status: 403 });
+    return NextResponse.json({ error: "当前账户未获得该工具权限，请联系管理员。" }, { status: 403 });
   }
   return access;
 }
