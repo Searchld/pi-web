@@ -164,6 +164,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       ruoyiAuthenticatedRef.current = false;
       setRuoyiExternalPrompt(null);
       setIsRuoyiAuthenticated(false);
+      setInitialSessionRestored(false);
       setRuoyiAuthorization(token);
       try {
         const authResponse = await fetch("/api/ruoyi-auth", {
@@ -213,6 +214,8 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         } else if (sessionId) {
           setInitialNavigation(getInitialNavigation(params));
           setInitialSessionRestored(false);
+        } else {
+          setInitialSessionRestored(true);
         }
         ruoyiAuthenticatedRef.current = true;
         setIsRuoyiAuthenticated(true);
@@ -1715,6 +1718,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     />
   ) : null;
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const handleExternalPromptReady = useCallback(() => {
+    if (ruoyiAuthenticatedRef.current) postRuoyiParentMessage({ type: "qimiao-agent-ready" });
+  }, [postRuoyiParentMessage]);
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
@@ -3154,7 +3160,9 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
               onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
               externalPrompt={ruoyiExternalPrompt}
-              externalPromptReady={initialSessionRestored}
+              externalPromptReady={initialSessionRestored && isRuoyiAuthenticated}
+              onExternalPromptReady={isRuoyiIntegration ? handleExternalPromptReady : undefined}
+              onExternalPromptRejected={() => postRuoyiParentMessage({ type: "qimiao-agent-response-end", aborted: true })}
               onExternalPromptConsumed={(id) => {
                 setRuoyiExternalPrompt((current) => current?.id === id ? null : current);
               }}

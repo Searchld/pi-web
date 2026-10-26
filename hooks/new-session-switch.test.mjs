@@ -89,3 +89,26 @@ test("a composer unmounted before its session exists opens no event stream for i
   assert.equal((await sendAndSwitch("creating")).opened, 0);
   assert.equal((await sendAndSwitch("mounted")).opened, 1);
 });
+
+test("a rejected first prompt reports failure to the embedding caller", async () => {
+  globalThis.fetch = async (url) => {
+    if (url.startsWith("/api/models")) return json({ models: {}, modelList: [] });
+    if (url === "/api/agent/new") return new Response("{}", { status: 403 });
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const hook = renderHook(useAgentSession, {
+    session: null,
+    newSessionCwd: "/project",
+    newSessionDraftKey: "new:draft",
+  });
+  await settle();
+  hook.flush();
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await hook.result.handleSend("first message"), false);
+  } finally {
+    console.error = originalError;
+    hook.unmount();
+  }
+});

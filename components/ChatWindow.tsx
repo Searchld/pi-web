@@ -99,6 +99,8 @@ interface Props {
   /** 通过已认证的 RuoYi 父窗口提交的一次性问题。 */
   externalPrompt?: { id: number; text: string } | null;
   externalPromptReady?: boolean;
+  onExternalPromptReady?: () => void;
+  onExternalPromptRejected?: () => void;
   onExternalPromptConsumed?: (id: number) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
@@ -268,7 +270,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, businessMode = false, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onAssistantTextEnd, onToolEvent, onSpeakAnswer, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, composerSessionStats, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, externalPrompt, externalPromptReady = true, onExternalPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, businessMode = false, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onAssistantTextStart, onAssistantTextDelta, onAssistantTextEnd, onToolEvent, onSpeakAnswer, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, composerSessionStats, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, externalPrompt, externalPromptReady = true, onExternalPromptReady, onExternalPromptRejected, onExternalPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   // 嵌入态直接订阅外观偏好，避免只依赖根 CSS 变量时 HMR/iframe 未及时重绘。
@@ -493,11 +495,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const externalPromptSentRef = useRef<number | null>(null);
   useEffect(() => {
+    // 会话和输入区都准备好后，再通知 RuoYi 投递工作台问题。
+    if (externalPromptReady && !loading && !error) onExternalPromptReady?.();
+  }, [externalPromptReady, loading, error, onExternalPromptReady]);
+  useEffect(() => {
     if (!externalPromptReady || loading || error || !externalPrompt || externalPromptSentRef.current === externalPrompt.id) return;
     externalPromptSentRef.current = externalPrompt.id;
     onExternalPromptConsumed?.(externalPrompt.id);
-    void handleSend(externalPrompt.text);
-  }, [externalPrompt, externalPromptReady, loading, error, handleSend, onExternalPromptConsumed]);
+    void handleSend(externalPrompt.text)
+      .then((accepted) => { if (!accepted) onExternalPromptRejected?.(); })
+      .catch(() => onExternalPromptRejected?.());
+  }, [externalPrompt, externalPromptReady, loading, error, handleSend, onExternalPromptConsumed, onExternalPromptRejected]);
 
   // One sound when a dialog appears with none on screen. A dialog queued behind
   // another one surfaces the moment the user answers that one, so it stays quiet.

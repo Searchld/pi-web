@@ -99,7 +99,7 @@ location ^~ /xi-web/ {
 
 ## 工作台 Agent 流程回传
 
-- 已认证的 RuoYi 父页可通过 `qimiao-agent-submit` 提交工作台问题；Pi Web 回传正文开始、正文增量和结束事件，RuoYi 工作台按流更新小锡气泡。
+- 已认证的 Pi Web 聊天窗口完成会话恢复和加载后发送 `qimiao-agent-ready`；RuoYi 此后通过 `qimiao-agent-submit` 提交工作台问题。Pi Web 回传正文开始、正文增量和结束事件，RuoYi 工作台按流更新小锡气泡。
 - 工作台的连续提问在同一个后台 iframe 会话中执行，以保留上下文；RuoYi 只在认证状态失效时重建该 iframe。
 - Pi Web 在 Agent 数据目录按已验证的 RuoYi `userId` 摘要保存工作台固定会话 ID。iframe 完成身份握手后恢复该用户会话；新会话创建或在完整界面显式切换会话时更新映射。恢复与保存均在服务端校验会话属于当前用户工作区，失效映射会清除并回到该用户工作区的新会话。
 - 每个顶层工具开始和结束时，Pi Web 回传 `qimiao-agent-tool`，字段为 `toolCallId`、`toolName` 和 `status`（`started`、`completed`、`failed`）。嵌套工具属于父工具进度，不重复显示。

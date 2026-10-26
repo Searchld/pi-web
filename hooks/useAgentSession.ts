@@ -1761,10 +1761,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage && !images?.length) return;
+    if (!trimmedMessage && !images?.length) return false;
     if (agentRunningRef.current || bashRunningRef.current) {
       restoreSubmission(message, images, composerDraftKey);
-      return;
+      return false;
     }
     if (editEntryId) {
       // Navigate and prompt are two RPCs: a prompt rejected after navigating
@@ -1774,7 +1774,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!(await handleNavigateRef.current?.(entryId))) {
         setEdit(entryId);
         restoreSubmission(message, images, composerDraftKey);
-        return;
+        return false;
       }
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
@@ -1785,10 +1785,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
       if (!bashCmd) {
         restoreSubmission(message, images, composerDraftKey);
-        return;
+        return false;
       }
       await executeBashRef.current?.(bashCmd, isExcluded);
-      return;
+      return false;
     }
 
     const promptRunId = promptRunIdRef.current + 1;
@@ -1861,6 +1861,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isSlashCommandPrompt && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
+      return true;
     } catch (e) {
       console.error("Failed to send message:", e);
       const definitivelyRejected = !promptRequestStarted || isPromptRejectedError(e);
@@ -1869,7 +1870,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // until server state confirms the run is idle.
       if (!definitivelyRejected && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
-        return;
+        return true;
       }
       rpcPromptPendingRef.current = false;
       setMessages((prev) => {
@@ -1886,13 +1887,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // its SSE connection until server state says the wrapper is idle.
       if (sentSessionId) {
         void reconcileAgentState(sentSessionId);
-        return;
+        return false;
       }
       agentRunningRef.current = false;
       closeEvents();
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
+      return false;
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
