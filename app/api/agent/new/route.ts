@@ -10,6 +10,7 @@ import { isRuoyiIntegrationEnabled, resolveRuoyiIdentity, ruoyiWorkspaceFor, typ
 import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError, type RuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
 import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
+import { cwdMissingBody } from "@/lib/missing-cwd";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
     }
     if (!existsSync(cwd)) {
       return NextResponse.json({
-        error: `Directory does not exist: ${cwd}`,
+        ...cwdMissingBody(cwd),
         ...(commandType === "prompt"
           ? { code: "prompt_rejected", accepted: false }
           : {}),

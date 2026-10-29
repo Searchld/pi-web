@@ -58,6 +58,8 @@ interface Props {
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string; input?: string[] }[];
   modelError?: string | null;
+  /** The session's folder, when it no longer exists (moved or renamed): said instead of a model error (#1422). */
+  missingCwd?: string | null;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
@@ -119,6 +121,7 @@ export interface ChatInputHandle {
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
+  focus: () => void;
 }
 
 // "configured" sends no override, so the session follows settings.json defaultTools.
@@ -214,6 +217,21 @@ export function replaceLinksWithMarkdown(
   }
 
   return replaced ? result + text.slice(searchFrom) : null;
+}
+
+/**
+ * The composer's auto-grow step: fit the text to 200 px, then let a scrollbar
+ * appear only when the text is still taller than the box.
+ *
+ * The height comes from the value, not from scrollHeight: a wrapped
+ * placeholder counts toward scrollHeight too, so an empty box would grow to
+ * its own hint's lines. Only typed text scrolls, so a placeholder that
+ * overflows the box stays cut off instead of showing a scrollbar.
+ */
+export function autoGrowTextarea(ta: HTMLTextAreaElement): void {
+  ta.style.height = "auto";
+  ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 200) : ta.clientHeight}px`;
+  ta.style.overflowY = ta.value && ta.scrollHeight > ta.clientHeight ? "auto" : "hidden";
 }
 
 function getVisibleTopBoundary(element: HTMLElement): number {
@@ -361,6 +379,18 @@ export function canClearBuiltinCommandInput(message: string, imageCount: number,
   return imageCount === 0 && message.trim() === submittedMessage;
 }
 
+/**
+ * Whether the composer box stacks its draft above its buttons instead of sitting
+ * them side by side. A phone has no room for the steer and follow-up buttons next
+ * to the draft: in one row the two of them take more than half the width and the
+ * placeholder is cut to "立即引导 / 排队后...". So while a run streams they move to
+ * their own right-aligned row below the draft. Quote mode (`compact`) stacks for
+ * its own reason: it is a short excerpt, not a full composer.
+ */
+export function stacksComposerLayout(compact: boolean, isMobile: boolean, isStreaming: boolean): boolean {
+  return compact || (isMobile && isStreaming);
+}
+
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
 
 const SLASH_SOURCE_GROUP_LABEL_KEYS: Record<SlashCommandSource, string> = {
@@ -377,18 +407,42 @@ const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   skill: 3,
 };
 
-function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key: string) => string): number {
+// pi's TUI matches a skill by its bare name (pi-tui's
+// CombinedAutocompleteProvider), so `/copy` finds `skill:copy-text` by prefix;
+// the full `skill:<name>` still matches a query that spells the prefix.
+function slashMatchRank(command: SlashCommandPaletteItem, query: string): number {
   const name = command.name.toLowerCase();
-  const description = getSlashDescription(command, t).toLowerCase();
-  if (name === query) return 0;
-  if (name.startsWith(query)) return 1;
+  const bareName = command.source === "skill" && name.startsWith("skill:") ? name.slice("skill:".length) : name;
+  if (bareName === query || name === query) return 0;
+  if (bareName.startsWith(query) || name.startsWith(query)) return 1;
   if (name.includes(query)) return 2;
-  if (description.includes(query)) return 3;
-  return 4;
+  return 3;
 }
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
   return command.source === "builtin" ? t(command.description) : command.description ?? "";
+}
+
+/**
+ * The palette's matches for a lower-cased query. pi's TUI matches names only;
+ * the palette searches descriptions too, but only when no name matches, so
+ * `/copy` lists the built-in, not every skill whose description says "copy".
+ */
+export function filterSlashCommands(
+  commands: SlashCommandPaletteItem[],
+  query: string,
+  t: (key: string) => string,
+): SlashCommandPaletteItem[] {
+  const ranked = commands.map((command) => ({ command, rank: slashMatchRank(command, query) }));
+  const byName = ranked.filter(({ rank }) => rank < 3);
+  const matches = byName.length > 0
+    ? byName
+    : ranked.filter(({ command }) => getSlashDescription(command, t).toLowerCase().includes(query));
+  return matches
+    .sort((a, b) => a.rank - b.rank
+      || SLASH_SOURCE_ORDER[a.command.source] - SLASH_SOURCE_ORDER[b.command.source]
+      || TEXT_COLLATOR.compare(a.command.name, b.command.name))
+    .map(({ command }) => command);
 }
 
 // Skill slash commands are named "skill:<skillName>"; look the skill up in the
@@ -425,15 +479,9 @@ export function buildSlashCommandLayout(
   };
 }
 
-const CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
-const CLIENT_MAX_IMAGE_SIDE = 1024;
-const CLIENT_JPEG_QUALITY = 0.85;
-
-export function shouldCompressImageFile(file: Pick<File, "size" | "type">): boolean {
-  return file.size > CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES && file.type !== "image/gif";
-}
-
-function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mimeType: string }> {
+// Attached images go to pi as they are: pi resizes prompt images itself, following
+// images.autoResize and the model's inputLimits.images.resize.
+export function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -447,34 +495,6 @@ function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mi
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-}
-
-export async function compressImageFile(file: File): Promise<{ data: string; mimeType: string }> {
-  const original = () => readImageFile(file, file.type);
-  if (!shouldCompressImageFile(file) || typeof createImageBitmap !== "function") return original();
-
-  const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap) return original();
-
-  try {
-    const scale = Math.min(1, CLIENT_MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return original();
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const data = canvas.toDataURL("image/jpeg", CLIENT_JPEG_QUALITY).split(",")[1];
-    return data && data.length < Math.ceil(file.size / 3) * 4
-      ? { data, mimeType: "image/jpeg" }
-      : original();
-  } catch {
-    return original();
-  } finally {
-    bitmap.close();
-  }
 }
 
 function imageToDraftImage(image: AttachedImage): ChatDraftImage {
@@ -566,6 +586,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
 }
 
 function ModelNoticeBanner({ tone, title, body, onClose }: { tone: "error" | "warning"; title: string; body: string; onClose?: () => void }) {
+  const { t } = useI18n();
   const color = tone === "error" ? "239,68,68" : "234,179,8";
   return (
     <div
@@ -610,7 +631,7 @@ function ModelNoticeBanner({ tone, title, body, onClose }: { tone: "error" | "wa
         <button
           type="button"
           onClick={onClose}
-          aria-label="Dismiss"
+          aria-label={t("sidebar.dismiss")}
           style={{
             flexShrink: 0,
             background: "none",
@@ -628,6 +649,13 @@ function ModelNoticeBanner({ tone, title, body, onClose }: { tone: "error" | "wa
       )}
     </div>
   );
+}
+
+/** The session's folder no longer exists: nothing was sent, and no model was asked (#1422). */
+export function MissingCwdBanner({ cwd }: { cwd?: string | null }) {
+  const { t } = useI18n();
+  if (!cwd) return null;
+  return <ModelNoticeBanner tone="error" title={t("chat.cwdMissingTitle")} body={t("chat.cwdMissingBody", { cwd })} />;
 }
 
 export function ModelErrorBanner({ error }: { error?: string | null }) {
@@ -663,7 +691,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, compactNotNeeded, onDismissCompactError, compactResult, toolPreset, allowedToolPresets, ruoyiToolPolicyManaged, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -751,8 +779,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     replaceText(text: string) {
@@ -786,8 +813,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     prependText(text: string) {
@@ -804,8 +830,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     rekeyDraft(previousKey: string, nextKey: string) {
@@ -900,9 +925,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
+    },
+    // The caret goes after a draft that came back, so typing continues it.
+    focus() {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
     },
     insertText(text: string) {
       const ta = textareaRef.current;
@@ -936,7 +967,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     try {
       const newImages = await Promise.all(
         imageFiles.map(async (file) => ({
-          ...await compressImageFile(file),
+          ...await readImageFile(file, file.type),
           previewUrl: URL.createObjectURL(file),
         }))
       );
@@ -1029,7 +1060,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    if (ta.value) autoGrowTextarea(ta);
+    else ta.style.overflowY = "hidden";
   }, []);
 
   useLayoutEffect(resizeTextarea, [value, fontSize, uiFontFamily, uiWeight, resizeTextarea]);
@@ -1110,18 +1142,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       ? BUILTIN_SLASH_COMMANDS.filter((command) => command.availableWhileStreaming)
       : BUILTIN_SLASH_COMMANDS;
     const commands = [...builtinCommands, ...(slashCommands ?? [])];
-    return [...commands]
-      .filter((command) => {
-        const name = command.name.toLowerCase();
-        const description = getSlashDescription(command, t).toLowerCase();
-        return name.includes(slashQuery) || description.includes(slashQuery);
-      })
-      .sort((a, b) => {
-        const rankDelta = slashMatchRank(a, slashQuery, t) - slashMatchRank(b, slashQuery, t);
-        if (rankDelta !== 0) return rankDelta;
-        return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
-          || TEXT_COLLATOR.compare(a.name, b.name);
-      });
+    return filterSlashCommands(commands, slashQuery, t);
   })();
 
   const {
@@ -1135,6 +1156,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const stackedComposer = stacksComposerLayout(compact, isMobile, isStreaming);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
@@ -1294,8 +1316,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(text.length, text.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      autoGrowTextarea(ta);
     });
   }, []);
 
@@ -1309,8 +1330,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      autoGrowTextarea(ta);
     });
   }, []);
 
@@ -1536,8 +1556,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const handleInput = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    autoGrowTextarea(ta);
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -1741,7 +1760,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       aria-busy={builtinCommandPending}
       className={compact ? undefined : "chat-input-shell"}
       style={{
-        flexShrink: 0,
+        // Never taller than the chat: a short window shrinks the queue first (#1428).
+        ...(compact ? { flexShrink: 0 } : { display: "flex", flexDirection: "column", minHeight: 0 }),
         minWidth: 0,
         margin: 0,
         border: 0,
@@ -1761,7 +1781,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         style={{ display: "none" }}
         onChange={handleFilePick}
       />}
-      <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+      <div style={{ ...(compact ? undefined : { display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }), maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+        <MissingCwdBanner cwd={missingCwd} />
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {showImageUnsupportedWarning && (() => {
@@ -1778,6 +1799,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 72, // the header and one whole row
             marginBottom: 8,
             border: "1px solid var(--border)",
             borderRadius: 6,
@@ -1835,12 +1859,19 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 </button>
               )}
             </div>
-            {queuedMessages?.steering.map((text, i) => (
-              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
-            ))}
-            {queuedMessages?.followUp.map((text, i) => (
-              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
-            ))}
+            {/* Only the rows scroll: a long queue must not push the input and its buttons off screen (#1428). */}
+            <div style={{
+              maxHeight: "min(180px, calc(var(--app-viewport-height, 100dvh) * 0.25))",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+            }}>
+              {queuedMessages?.steering.map((text, i) => (
+                <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
+              ))}
+              {queuedMessages?.followUp.map((text, i) => (
+                <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
+              ))}
+            </div>
           </div>
         )}
         {/* Retry banner */}
@@ -2303,10 +2334,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             style={{
               minWidth: 0,
               display: "flex",
-              flexDirection: compact ? "column" : "row",
+              flexDirection: stackedComposer ? "column" : "row",
               gap: 8,
-              alignItems: compact ? "stretch" : "center",
+              alignItems: stackedComposer ? "stretch" : "center",
+              background: compact ? "transparent" : "var(--bg)",
+              border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
+                ? "rgba(234,179,8,0.4)"
+                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
+              borderRadius: compact ? 0 : 14,
               padding: compact ? 0 : isMobile ? "6px 6px 4px 12px" : "10px 12px 5px 14px",
+              boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+              transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
           <textarea
@@ -2337,14 +2375,16 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
-              isStreaming && (onSteer || onFollowUp)
+              isCompacting
+                ? t("chat.compactingPlaceholder")
+                : isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
                 : t("chat.messagePlaceholder")
             }
             rows={1}
             style={{
-              flex: compact ? "none" : 1,
+              flex: stackedComposer ? "none" : 1,
               minWidth: 0,
               width: "100%",
               background: "none",
@@ -2495,6 +2535,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 options={modelOptions}
                 value={model}
                 onChange={onModelChange}
+                onReselect={onModelChange}
                 disabled={isStreaming}
                 busy={modelSwitching}
                 isAutoSelection={isAutoModelSelection}
@@ -2676,7 +2717,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             )}
             {!isStreaming && onToolPresetChange && !ruoyiToolPolicyManaged && (
-              <div ref={toolDropdownRef} style={{ position: "relative" }}>
+              <div ref={toolDropdownRef} style={{
+                // 手机菜单从工具栏右侧展开，避免说明文字溢出屏幕。
+                position: isMobile ? "static" : "relative",
+              }}>
                 <button
                   onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
                   disabled={isStreaming}
@@ -2715,8 +2759,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   <div style={{
                     position: "absolute",
                     bottom: "calc(100% + 6px)",
-                    right: isMobile ? undefined : 0,
-                    left: isMobile ? 0 : undefined,
+                    right: 0,
+                    maxWidth: isMobile ? "calc(100vw - 16px)" : undefined,
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 120,

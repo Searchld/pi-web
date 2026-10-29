@@ -9,6 +9,7 @@ import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 import { getRpcSessionInfos } from "@/lib/rpc-manager";
 import { isRuoyiIntegrationEnabled, ruoyiSessionUiStatePath } from "@/lib/ruoyi-identity";
 import { requireRuoyiChatAccess } from "@/lib/ruoyi-access";
+import { getSessionIdsWithUnsettledSubagentRuns } from "@/lib/subagent-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
       runningSessionIds: filter(getRunningRpcSessionIds()),
       awaitingInputSessionIds: filter(getAwaitingInputRpcSessionIds()),
       completionNotificationSuppressedSessionIds: filter(getCompletionNotificationSuppressedRpcSessionIds()),
+      subagentsActiveSessionIds: filter(getSessionIdsWithUnsettledSubagentRuns()),
       sessionUiStateRevision: getSessionUiStateRevision(statePath),
     },
     { headers: { "Cache-Control": "no-store" } },

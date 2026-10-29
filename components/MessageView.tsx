@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { Fragment, memo, useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
@@ -8,23 +8,26 @@ import { ThinkingIcon } from "./ThinkingIcon";
 import { BranchIcon } from "./SidebarIcons";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { formatTurnDuration } from "@/lib/turn-duration";
-import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
+import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
-import { skillExpansionToCommand } from "@/lib/slash-display";
+import { skillExpansionContent, skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
+import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
+import { parseStreamingJson } from "@earendil-works/pi-ai/utils/json-parse";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
-import { getTranscriptNotices } from "@/lib/transcript-notices";
+import { formatNoticeTokens, getTranscriptNotices } from "@/lib/transcript-notices";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
 import type {
   AgentMessage,
@@ -506,7 +509,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                 )}
               </div>
               {expanded && (
-                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{skillExpansionContent(content) ?? content}</MarkdownBody>
               )}
             </div>
           ) : (
@@ -786,6 +789,13 @@ function AssistantMessageView({
     .map((b) => b.text)
     .join("\n");
 
+  const stats = message.usage ? formatUsage(message.usage) : [];
+  if (turnDurationMs !== undefined) {
+    if (stats.length > 0) stats.push({ text: "·" });
+    const time = formatTurnDuration(turnDurationMs);
+    stats.push(formatDurationPart(t("chat.turnDuration", { time }), time));
+  }
+
   const copyContent = () => {
     copyText(textContent).then(() => {
       setCopied(true);
@@ -978,18 +988,15 @@ function AssistantMessageView({
         <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} />
       )}
 
-      {((!businessMode && (message.usage || turnDurationMs !== undefined) && !isStreaming) || textContent || (time && !isStreaming && !businessMode)) && (
-        <div style={{
-          display: "flex", alignItems: "center", gap: businessMode ? 2 : 8, marginTop: 4,
-        }}>
-          {!businessMode && (message.usage || turnDurationMs !== undefined) && !isStreaming && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {[
-              message.usage ? formatUsage(message.usage, t) : null,
-              turnDurationMs !== undefined ? t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) }) : null,
-            ].filter(Boolean).join(" \u00b7 ")}
-          </div>
-        )}
+      {((!businessMode && stats.length > 0 && !isStreaming) || textContent || (time && !isStreaming && !businessMode)) && (
+        <div style={{ display: "flex", alignItems: "center", gap: businessMode ? 2 : 8, marginTop: 4 }}>
+          {!businessMode && stats.length > 0 && !isStreaming && (
+            <div style={{ display: "flex", flexWrap: "wrap", columnGap: 7, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+              {stats.map((part, index) => (
+                <Fragment key={index}>{index > 0 && " "}<UsagePart part={part} /></Fragment>
+              ))}
+            </div>
+          )}
           {textContent && !isStreaming && (
           <button
             onClick={copyContent}
@@ -1280,10 +1287,15 @@ function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }
     setToolCallExpanded(block.toolCallId, next);
     setExpanded(next);
   };
-  const inputStr = getWrittenFileText(block) ?? getToolCallInputText(block);
+  const writtenFileText = getWrittenFileText(block);
+  const inputStr = writtenFileText ?? getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  // A call that names no file (an anchor-addressed edit) is labelled with the
+  // one file its result's patch changed, the path its TUI renderer shows.
+  const resultDiffText = resultDiff?.text;
+  const resultPatchPath = useMemo(() => singlePatchPath(resultDiffText), [resultDiffText]);
   const patchFiles = getApplyPatchFiles(block, result);
   const patchLabel = isApplyPatchToolName(block.toolName)
     ? summarizeApplyPatchInput(block)
@@ -1294,6 +1306,15 @@ function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }
   const codemode = codemodeCode === null ? null : { code: codemodeCode, ...codemodeCalls(result?.details) };
   // A running script's progress snapshot has calls but no content yet.
   const codemodeRunning = codemode !== null && result !== undefined && result.content.length === 0;
+
+  // Flat arguments as rows instead of a JSON blob, unless the card has a view of
+  // its own (a write's file text, codemode, an applied patch). See `lib/tool-fields.ts`.
+  // Input still streaming goes through pi's own partial parse, the arguments its
+  // TUI draws live, so a multi-line command shows its lines before the call ends.
+  const toolFields =
+    expanded && writtenFileText === null && codemode === null && patchFiles === null
+      ? toolFieldsOfInput(isStreamingInput ? parseStreamingJson(block.rawInput) : block.input)
+      : null;
 
   // `server/tool` instead of the registered `mcp__server__tool`, as pi's TUI shows it.
   const mcpLabel = mcpToolLabel(block.toolName, result?.details);
@@ -1312,7 +1333,7 @@ function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
   const toolPreview = isStreamingInput
     ? t("chat.generatingToolInput")
-    : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)));
+    : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block, resultPatchPath)));
   const businessToolText = toolPreview || (mcpLabel ? `${mcpLabel.server}/${mcpLabel.tool}` : block.toolName);
   const displayedInput = businessMode && !codemode ? formatBusinessToolInput(inputStr) : inputStr;
 
@@ -1353,28 +1374,16 @@ function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }
                 <rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" />
               </svg>
               <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>{result ? t("chat.ranTool") : t("chat.runningTool")}</span>
-              <code title={block.toolName} style={{ color: isError ? "#dc2626" : "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "0 1 auto", maxWidth: "min(640px, 70vw)", minWidth: 0 }}>
-                {businessToolText}
-              </code>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-                <polyline points="3 2 6.5 5 3 8" />
-              </svg>
+              <code title={block.toolName} style={{ color: isError ? "#dc2626" : "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "0 1 auto", maxWidth: "min(640px, 70vw)", minWidth: 0 }}>{businessToolText}</code>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}><polyline points="3 2 6.5 5 3 8" /></svg>
             </>
           ) : (
             <>
-              <span
-                title={mcpLabel ? block.toolName : undefined}
-                style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}
-              >
-                {mcpLabel ? (
-                  <>
-                    <span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>
-                    {mcpLabel.tool}
-                  </>
-                ) : block.toolName}
+              <span title={mcpLabel ? block.toolName : undefined} style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+                {mcpLabel ? <><span style={{ fontWeight: 500, opacity: 0.75 }}>{mcpLabel.server}/</span>{mcpLabel.tool}</> : block.toolName}
               </span>
               <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                {toolPreview}
+                {isStreamingInput ? t("chat.generatingToolInput") : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block, resultPatchPath)))}
               </span>
             </>
           )}
@@ -1405,23 +1414,19 @@ function ToolCallBlock({ block, result, duration, businessMode, onOpenSubagent }
 
       {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
       {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
-        <pre
-          style={{
-            margin: 0,
-            padding: businessMode ? "4px 2px 6px" : "8px 10px",
-            color: "var(--text-muted)",
-            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-            lineHeight: 1.5,
-            overflow: "auto",
-            background: businessMode ? "transparent" : "var(--bg-subtle)",
-            border: businessMode ? "none" : undefined,
-            borderTop: businessMode ? undefined : (isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)"),
-            whiteSpace: businessMode ? "pre" : "pre-wrap",
-            wordBreak: businessMode ? "normal" : "break-all",
-          }}
-        >
-          {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : displayedInput}
-        </pre>
+        businessMode ? (
+          <pre style={{ margin: 0, padding: "4px 2px 6px", color: "var(--text-muted)", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5, overflow: "auto", background: "transparent", whiteSpace: "pre", wordBreak: "normal" }}>
+            {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : displayedInput}
+          </pre>
+        ) : toolFields ? (
+          <div style={{ padding: "6px 10px 8px", background: "var(--bg-subtle)", borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)" }}>
+            <ToolFieldRows fields={toolFields} />
+          </div>
+        ) : (
+          <pre style={{ margin: 0, padding: "8px 10px", color: "var(--text-muted)", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5, overflow: "auto", background: "var(--bg-subtle)", borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+            {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
+          </pre>
+        )
       )}
 
       {/* ── Expanded: the calls a codemode script made ── */}
@@ -1489,7 +1494,21 @@ function SplitPatchView({ text }: { text: string }) {
   return <SplitFilesView files={files} />;
 }
 
+/** Two code columns side by side, or one column of patch lines. */
+export type PatchDiffLayout = "split" | "stacked";
+
+/**
+ * The patch as the viewport can show it. Two columns need two code columns side
+ * by side, which a phone does not have: there the same rows read as one column
+ * — a removed line above the line that replaces it, each with its own number —
+ * the way the file viewer's diff has always been drawn. See `unifiedDiffLines()`.
+ */
 function SplitFilesView({ files }: { files: SplitDiffFile[] }) {
+  const layout: PatchDiffLayout = useIsMobile() ? "stacked" : "split";
+  return <PatchDiffFiles files={files} layout={layout} />;
+}
+
+export function PatchDiffFiles({ files, layout }: { files: SplitDiffFile[]; layout: PatchDiffLayout }) {
   const { t } = useI18n();
   const showFileHeaders = files.length > 1;
 
@@ -1507,7 +1526,7 @@ function SplitFilesView({ files }: { files: SplitDiffFile[] }) {
             lineHeight: 1.55,
           }}
         >
-          {showFileHeaders && (
+          {showFileHeaders && layout === "split" && (
             <div
               style={{
                 display: "grid",
@@ -1524,10 +1543,34 @@ function SplitFilesView({ files }: { files: SplitDiffFile[] }) {
             </div>
           )}
 
+          {showFileHeaders && layout === "stacked" && stackedFilePath(file) && (
+            <div
+              title={stackedFilePath(file)}
+              style={{
+                position: "sticky",
+                top: 0,
+                zIndex: 1,
+                padding: "5px 10px",
+                color: "var(--text-dim)",
+                background: "var(--bg-panel)",
+                borderBottom: "1px solid var(--border)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {stackedFilePath(file)}
+            </div>
+          )}
+
+          {layout === "split" && (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
             {file.rows.map((row, rowIndex) => {
               if (row.type === "hunk") {
                 return null;
+              }
+              if (row.type === "gap") {
+                return <DiffGapRow key={rowIndex} gap={row} />;
               }
 
               return (
@@ -1538,9 +1581,56 @@ function SplitFilesView({ files }: { files: SplitDiffFile[] }) {
               );
             })}
           </div>
+          )}
+
+          {layout === "stacked" && unifiedDiffLines(file).map((line, lineIndex) => (
+            line.type === "gap"
+              ? <DiffGapRow key={lineIndex} gap={line} />
+              : <StackedDiffLineView key={lineIndex} line={line} />
+          ))}
         </div>
       ))}
     </div>
+  );
+}
+
+/** Unchanged lines the patch leaves out between two hunks, across the whole width. */
+function DiffGapRow({ gap }: { gap: SplitDiffGap }) {
+  const { t } = useI18n();
+  return (
+    <div
+      style={{
+        gridColumn: "1 / -1",
+        padding: "0 10px",
+        color: "var(--text-dim)",
+        background: "var(--bg-panel)",
+        borderTop: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+        userSelect: "none",
+      }}
+    >
+      {gap.count === null ? "⋯" : `⋯ ${diffGapLabel(gap.count, t)}`}
+    </div>
+  );
+}
+
+/** The file a stacked section is named for: the new path, the one that survives, unless the file was deleted. */
+function stackedFilePath(file: SplitDiffFile): string {
+  if (file.newPath && file.newPath !== "/dev/null") return file.newPath;
+  return file.oldPath || file.newPath || "";
+}
+
+function StackedDiffLineView({ line }: { line: UnifiedDiffLine }) {
+  return (
+    <SplitDiffCellView
+      side="right"
+      cell={{
+        // One gutter, so a removed line keeps the old number and everything else the new one.
+        lineNo: line.type === "removed" ? line.oldLineNo : line.newLineNo,
+        text: line.text,
+        type: line.type,
+      }}
+    />
   );
 }
 
@@ -1730,6 +1820,13 @@ function getResultDiff(result: ToolResultMessage): ResultDiff | null {
   if (diff) return { text: diff };
 
   return null;
+}
+
+/** The file a result's patch changed, when it changed exactly one. */
+function singlePatchPath(text: string | undefined): string | null {
+  if (!text) return null;
+  const files = parseUnifiedPatch(text);
+  return files?.length === 1 ? stackedFilePath(files[0]) || null : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2163,9 +2260,10 @@ function formatBusinessToolInput(input: string): string {
 
 const WRITE_VIEW_KEYS = new Set(["path", "file_path", "content"]);
 
-// A write's file text in place of its JSON. Streamed input is still incomplete
-// JSON, and any other argument (a mode, a title) would vanish from this view,
-// so those calls, and an empty file, keep the generic view.
+// A write's file text in place of its JSON: the header already shows the path.
+// Streamed input is still incomplete JSON, and any other argument (a mode, a
+// title) would vanish from this view, so those calls, and an empty file, keep
+// the generic view.
 function getWrittenFileText(block: ToolCallContent): string | null {
   if (block.rawInput !== undefined || !isWriteToolName(block.toolName)) return null;
   const { content } = block.input;
@@ -2173,12 +2271,59 @@ function getWrittenFileText(block: ToolCallContent): string | null {
   return Object.keys(block.input).every((key) => WRITE_VIEW_KEYS.has(key)) ? content : null;
 }
 
+const TOOL_FIELD_LABEL: CSSProperties = {
+  padding: "4px 12px 4px 0",
+  color: "var(--text-dim)",
+  fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
+  whiteSpace: "nowrap",
+  verticalAlign: "top",
+};
+
+const TOOL_FIELD_VALUE: CSSProperties = {
+  padding: "4px 0",
+  color: "var(--text-muted)",
+  fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+  fontFamily: "var(--font-mono)",
+  overflowWrap: "anywhere",
+};
+
+// A value with newlines of its own keeps them, scrolled in place.
+const TOOL_FIELD_BLOCK: CSSProperties = {
+  margin: 0,
+  padding: "8px 10px",
+  maxHeight: 260,
+  overflow: "auto",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  background: "var(--bg)",
+  font: "inherit",
+  lineHeight: 1.5,
+  whiteSpace: "pre-wrap",
+};
+
+function ToolFieldRows({ fields }: { fields: ToolField[] }) {
+  return (
+    <table style={{ borderCollapse: "collapse" }}>
+      <tbody>
+        {fields.map((field) => (
+          <tr key={field.key}>
+            <td style={TOOL_FIELD_LABEL}>{field.key}</td>
+            <td style={TOOL_FIELD_VALUE}>
+              {field.multiline ? <pre style={TOOL_FIELD_BLOCK}>{field.value}</pre> : field.value}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function formatCustomType(type: string): string {
   return type || "extension";
 }
 
 
-function getToolPreview(block: ToolCallContent): string {
+function getToolPreview(block: ToolCallContent, resultPatchPath: string | null): string {
   const input = block.input;
   if (!input || typeof input !== "object") return "";
   const keys = Object.keys(input);
@@ -2188,6 +2333,7 @@ function getToolPreview(block: ToolCallContent): string {
   if ("command" in input) return String(input.command).slice(0, 120);
   if ("path" in input) return String(input.path).slice(0, 120);
   if ("file_path" in input) return String(input.file_path).slice(0, 120);
+  if (resultPatchPath) return resultPatchPath.slice(0, 120);
   if ("pattern" in input) return String(input.pattern).slice(0, 120);
   if ("query" in input) return String(input.query).slice(0, 120);
 
@@ -2201,17 +2347,43 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}, t: ReturnType<typeof useI18n>["t"]): string {
-  const parts = [];
-  if (usage.input) parts.push(`${t("session.input")} ${usage.input.toLocaleString()}`);
-  if (usage.output) parts.push(`${t("session.output")} ${usage.output.toLocaleString()}`);
-  if (usage.cacheRead) parts.push(`${t("session.cacheRead")} ${usage.cacheRead.toLocaleString()}`);
-  if (usage.cacheWrite) parts.push(`${t("session.cacheWrite")} ${usage.cacheWrite.toLocaleString()}`);
-  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
-  return parts.join(" · ");
+}): StatPart[] {
+  const parts: StatPart[] = [];
+  if (usage.input) parts.push({ icon: "up", before: "↑", text: formatNoticeTokens(usage.input) });
+  if (usage.output) parts.push({ icon: "down", before: "↓", text: formatNoticeTokens(usage.output) });
+  if (usage.cacheRead) parts.push({ text: `R${formatNoticeTokens(usage.cacheRead)}` });
+  if (usage.cacheWrite) parts.push({ text: `W${formatNoticeTokens(usage.cacheWrite)}` });
+  if (usage.cost?.total) parts.push({ text: `$${usage.cost.total.toFixed(4)}` });
+  return parts;
+}
+
+function formatDurationPart(label: string, time: string): StatPart {
+  const index = label.indexOf(time);
+  if (index < 0) return { text: label };
+  return { icon: "clock", before: label.slice(0, index), text: time, after: label.slice(index + time.length) };
+}
+
+interface StatPart { text: string; icon?: "up" | "down" | "clock"; before?: string; after?: string }
+const STAT_ICON_PATHS = {
+  up: "M6 10.5V1.5M2.5 5 6 1.5 9.5 5",
+  down: "M6 1.5v9M2.5 7 6 10.5 9.5 7",
+  clock: "M6 1.25a4.75 4.75 0 1 0 0 9.5 4.75 4.75 0 1 0 0-9.5M6 3.5V6l1.75 1",
+};
+const HIDDEN_STAT_TEXT: CSSProperties = { fontSize: 0 };
+
+function UsagePart({ part }: { part: StatPart }) {
+  if (!part.icon) return <span>{part.text}</span>;
+  return <span>
+    {part.before && <span style={HIDDEN_STAT_TEXT}>{part.before}</span>}
+    <svg width={part.icon === "clock" ? 10 : 9} height={part.icon === "clock" ? 10 : 9} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: "inline", verticalAlign: part.icon === "clock" ? "-0.1em" : "-0.05em", marginRight: part.icon === "clock" ? 3 : 1 }}>
+      <path d={STAT_ICON_PATHS[part.icon]} />
+    </svg>
+    {part.text}{part.after && <span style={HIDDEN_STAT_TEXT}>{part.after}</span>}
+  </span>;
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
+  const { t } = useI18n();
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
@@ -2275,14 +2447,14 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               disabled={loadingFull}
               style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
             >
-              {loadingFull ? "loading…" : "view full output"}
+              {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
             </button>
           )}
           <a
             href={`${fullOutputUrl}&download=1`}
             style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
-            download full output
+            {t("chat.downloadFullOutput")}
           </a>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>

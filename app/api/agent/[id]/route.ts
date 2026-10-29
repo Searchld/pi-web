@@ -5,6 +5,7 @@ import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoy
 import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, sameRuoyiSkillNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
+import { cwdMissingBody, missingCwdFromBody } from "@/lib/missing-cwd";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -96,8 +97,11 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
+    // Read by its fields: the wrapper that threw may come from another route's bundle.
+    const missingCwd = missingCwdFromBody(error);
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
+      ...(missingCwd ? cwdMissingBody(missingCwd) : {}),
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),
@@ -121,7 +125,9 @@ export async function GET(
     }
     if (access) session.setRuoyiAuthorization(access.identity.authorization);
 
-    const state = await session.send({ type: "get_state" });
+    const state = await session.send({ type: "get_state" }) as Record<string, unknown>;
+    // Status reads leave out the system prompt, most of the reply (agentStatusUrl()).
+    if (new URL(req.url).searchParams.get("systemPrompt") === "0") delete state.systemPrompt;
     return NextResponse.json({ running: true, state });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

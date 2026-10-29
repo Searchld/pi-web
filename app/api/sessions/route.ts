@@ -12,6 +12,7 @@ import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRpcSessionInfos,
   getRunningRpcSessionIds,
+  withSubagentDisplayStatus,
 } from "@/lib/rpc-manager";
 import { startServerPerf } from "@/lib/perf";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
@@ -45,10 +46,11 @@ export async function GET(req: Request) {
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     perf?.span("scan+projects");
-    const sessions = mergeSessionLists(persistedSessions, runtimeSessions)
+    const visibleSessions = mergeSessionLists(persistedSessions, runtimeSessions)
       .filter((session) => !workspace || session.cwd === workspace);
-    const visibleSessionIds = workspace ? new Set(sessions.map((session) => session.id)) : undefined;
+    const visibleSessionIds = workspace ? new Set(visibleSessions.map((session) => session.id)) : undefined;
     const visible = (ids: string[]) => visibleSessionIds ? ids.filter((id) => visibleSessionIds.has(id)) : ids;
+    const sessions = withSubagentDisplayStatus(visibleSessions);
     return perf?.attach(jsonResponse(
       req,
       {
