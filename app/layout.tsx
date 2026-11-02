@@ -20,7 +20,6 @@ export const metadata: Metadata = {
   title: applicationName,
   description: isRuoyiIntegration ? "Web Agent" : "Pi Web interface for the pi coding agent",
   applicationName,
-  manifest: withAppBasePath("/manifest.webmanifest"),
   icons: {
     icon: [
       {
@@ -65,6 +64,7 @@ export default function RootLayout({
   return (
     <html lang="en" translate="no" className="notranslate" suppressHydrationWarning>
       <head>
+        <link rel="manifest" href={withAppBasePath("/manifest.webmanifest")} crossOrigin="use-credentials" />
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{

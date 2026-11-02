@@ -48,6 +48,12 @@ import {
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
+import {
+  hasSideMetadata,
+  readSideRelation,
+  sideToolNames,
+} from "./side-session";
+import { SIDE_SESSION_NAME, sideChatNameFrom } from "./session-family";
 import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { isRuoyiIntegrationEnabled } from "./ruoyi-identity";
@@ -172,6 +178,8 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /** A subagent's wrapper: a run ended and nothing is left to do. */
+  onDirectTurnSettled?: (aborted: boolean) => void;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
   mcpHost?: WrapperMcpHost;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
@@ -186,6 +194,7 @@ type AgentSessionWrapperOptions = {
   ruoyiSystemPromptRef?: { current: string | null };
   /** RuoYi 业务目录的中文名称。SDK 的 ToolInfo 不保证保留 label，故由包装层保存。 */
   ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
+  sideChat?: boolean;
 };
 
 /**
@@ -337,6 +346,10 @@ const SESSION_TOOL_NAMES = new Set<string>(["codemode", "tool_search", ...SUBAGE
  * tool one switched off stays off. Nothing else is added: pi itself activates the extension
  * tools it registers (all of them when it builds or reloads a session, then each new one), so
  * `carry` already holds them. An empty selection is Chat only.
+ *
+ * Order follows `carry`, the order the `pi` CLI declares for the same set: regrouping the
+ * coding tools ahead rewrites the prompt's `<tools>` section and drops the provider's prompt
+ * cache on every harness switch (#1405). Newly selected coding tools go at the end.
  */
 export function resolveActiveToolNames(
   session: AgentSessionLike,
@@ -352,11 +365,12 @@ export function resolveActiveToolNames(
     session.settingsManager.getDefaultTools(),
   );
   const carriedToolNames = carry.filter((name) => {
+    if (codingToolNames.has(name)) return selectedToolNames.includes(name);
     const tool = registered.get(name);
-    return tool !== undefined && !codingToolNames.has(name) && tool.exposure !== "hidden";
+    return tool !== undefined && tool.exposure !== "hidden";
   });
 
-  return [...new Set([...selectedToolNames, ...carriedToolNames])];
+  return [...new Set([...carriedToolNames, ...selectedToolNames])];
 }
 
 /** pi's "Cannot submit a prompt while compaction is in progress" rejection. */
@@ -399,6 +413,7 @@ export class AgentSessionWrapper {
   private readonly exactSystemPrompt?: () => string | undefined;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
+  private readonly onDirectTurnSettled?: (aborted: boolean) => void;
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: WrapperMcpHost;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
@@ -407,6 +422,7 @@ export class AgentSessionWrapper {
   private readonly ruoyiLoadedSkillNames?: readonly string[];
   private readonly ruoyiSystemPromptRef?: { current: string | null };
   private readonly ruoyiBusinessToolLabels?: ReadonlyMap<string, string>;
+  private readonly sideChat: boolean;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
@@ -444,6 +460,7 @@ export class AgentSessionWrapper {
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
+    this.onDirectTurnSettled = options.onDirectTurnSettled;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
@@ -452,6 +469,7 @@ export class AgentSessionWrapper {
     this.ruoyiLoadedSkillNames = options.ruoyiLoadedSkillNames;
     this.ruoyiSystemPromptRef = options.ruoyiSystemPromptRef;
     this.ruoyiBusinessToolLabels = options.ruoyiBusinessToolLabels;
+    this.sideChat = options.sideChat === true;
   }
 
   get sessionId(): string {
@@ -711,6 +729,11 @@ export class AgentSessionWrapper {
   private notifyAgentRunCompleteIfIdle(): void {
     if (!this.agentRunNeedsCompletion || this.isRunning()) return;
     this.agentRunNeedsCompletion = false;
+    try {
+      this.onDirectTurnSettled?.(this.lastRunAborted);
+    } catch (error) {
+      console.error("[pi-web] could not settle the subagent turn:", error instanceof Error ? error.message : error);
+    }
     // A stopped run did not finish a task, as pi's own status reporting has it: nothing to announce.
     if (this.suppressCompletionNotifications || this.lastRunAborted) return;
     // A subagent of this session is still at work: each report starts a run here, and the run
@@ -1019,12 +1042,25 @@ export class AgentSessionWrapper {
           readSessionToolSelection(entries) ?? activeAfter,
           [...activeAfter, ...activeBefore.filter((name) => SESSION_TOOL_NAMES.has(name))],
         );
-      } else if (activeBefore.some((name, index) => name !== activeAfter[index])) {
-        // Same tools, other order: pi declares them in this order, so keep the previous one.
-        this.inner.setActiveToolsByName(activeBefore);
       }
     }
     return { cancelled: false };
+  }
+
+  /** The first prompt names a side chat that still has the name it started with. */
+  private nameSideChat(message: unknown): void {
+    if (this.inner.sessionManager.getSessionName() !== SIDE_SESSION_NAME || typeof message !== "string") return;
+    const name = sideChatNameFrom(message);
+    if (!name) return;
+    this.inner.setSessionName(name);
+    invalidateSessionListCache();
+  }
+
+  /** A copy of a side chat would be read as one, or show its parent's history as a new session. */
+  private refuseForkOfSideChat(): void {
+    if (hasSideMetadata(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+      throw new Error("A side chat cannot be forked");
+    }
   }
 
   private emit(event: AgentEvent): void {
@@ -1216,6 +1252,7 @@ export class AgentSessionWrapper {
           if (this.inner.isBashRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
+          if (this.sideChat) this.nameSideChat(command.message);
           const model = this.inner.model;
           if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
@@ -1456,6 +1493,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
+        this.refuseForkOfSideChat();
         // Forking copies finished entries from disk into a new file and never
         // touches this AgentSession, so a running source keeps its run. Only an
         // idle source is shut down, because the browser moves to the child.
@@ -1511,6 +1549,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
+        this.refuseForkOfSideChat();
         const entryId = command.entryId as string;
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
@@ -1534,6 +1573,7 @@ export class AgentSessionWrapper {
         if (this.isSessionRunningForReplacement()) {
           throw new Error("Cannot clone while the session is running");
         }
+        this.refuseForkOfSideChat();
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
         const leafId = typeof command.leafId === "string" ? command.leafId : sessionManager.getLeafId();
@@ -2603,6 +2643,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         : {}),
       chatOnly: options?.chatOnly,
       suppressCompletionNotifications: true,
+      onDirectTurnSettled: (aborted) => SUBAGENT_CONTROLLER.settleDirectTurn(inner.sessionId, aborted),
       ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
     });
     registerRpcWrapper(wrapper);
@@ -2781,6 +2822,9 @@ export async function setRpcSessionTools(
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
+    if (hasSideMetadata(manager.getEntries() as unknown as SessionEntry[])) {
+      throw new Error("Side chat tools are fixed when it is forked");
+    }
     if (toolNames === undefined) appendClearedSessionToolSelection(manager);
     else appendSessionToolSelection(manager, toolNames);
     invalidateSessionListCache();
@@ -2791,6 +2835,9 @@ export async function setRpcSessionTools(
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
   if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Subagent tool selection is fixed by its profile");
+  }
+  if (hasSideMetadata(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+    throw new Error("Side chat tools are fixed when it is forked");
   }
 
   const hasCurrentResourcePolicy = typeof existing.isChatOnly === "function"
@@ -2893,6 +2940,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
     const sessionFile = manager.getSessionFile() ?? session.sessionFile;
     const persisted = Boolean(sessionFile && existsSync(sessionFile));
     const subagent = readSubagentRun(entries as unknown as SessionEntry[], header?.id ?? session.sessionId, sessionFile ?? "");
+    const side = subagent ? null : readSideRelation(entries as unknown as SessionEntry[]);
 
     // An ensure_session call creates an idle, empty runtime while the composer
     // loads commands. Do not leak it into history before a prompt is accepted.
@@ -2926,6 +2974,9 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
           description: subagent.description,
           status: session.isRunning() ? "running" as const : subagent.status,
         },
+      } : side ? {
+        parentSessionId: side.parentSessionId,
+        relation: { kind: "side" as const, ...side },
       } : {}),
       transient: !persisted,
     });
@@ -3165,7 +3216,7 @@ export async function startRpcSession(
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionEntries);
-  const selectedToolNames = subagentResources?.tools
+  const pinnedToolNames = subagentResources?.tools
     ?? (forceToolNames && requestedToolNames !== undefined ? requestedToolNames : persistedToolNames ?? requestedToolNames);
   if (!subagentResources && requestedToolNames !== undefined && (
     persistedToolNames === undefined || (forceToolNames && !sameToolNames(persistedToolNames, requestedToolNames))
@@ -3192,8 +3243,17 @@ export async function startRpcSession(
   const ruoyiExtensionsEnabled = Boolean(
     ruoyiPolicyRef?.current.businessToolsEnabled || ruoyiPolicyRef?.current.subagentToolNames.length,
   );
-  const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources && !ruoyiExtensionsEnabled;
+  const chatOnly = pinnedToolNames?.length === 0 && !subagentLoadsResources && !ruoyiExtensionsEnabled;
   const ruoyiSkillFiles = new Set<string>();
+  // A side chat (ADR 0007) starts as a normal session, or as Chat only, with fewer tools.
+  const isSideChat = hasSideMetadata(sessionEntries);
+  if (isSideChat && !readSideRelation(sessionEntries)) throw new Error("Invalid side chat metadata");
+  const sideChatTools = isSideChat && !chatOnly;
+  const selectedToolNames = sideChatTools
+    ? sideToolNames(pinnedToolNames, sessionManager.getBranch().flatMap((entry) => (
+        entry.type === "message" && entry.message.role === "system" ? [entry.message] : []
+      )))
+    : pinnedToolNames;
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -3229,6 +3289,9 @@ export async function startRpcSession(
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    // Here the allow-list is the point: extensions stay loaded, their tools and what
+    // the parent did not have stay out of the registry.
+    if (sideChatTools) toolsOption = resolveShellTools(selectedToolNames ?? [], settingsManager.getDefaultTools());
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
@@ -3237,7 +3300,7 @@ export async function startRpcSession(
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
-    const builtins = subagentResources || chatOnly || controlledRuoyiSession
+    const builtins = subagentResources || chatOnly || controlledRuoyiSession || sideChatTools
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
     const subagentCodemode = subagentResources?.codemode
@@ -3488,7 +3551,10 @@ export async function startRpcSession(
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });
       },
-      suppressCompletionNotifications: Boolean(subagentResources),
+      suppressCompletionNotifications: Boolean(subagentResources) || isSideChat,
+      ...(subagentResources
+        ? { onDirectTurnSettled: (aborted: boolean) => SUBAGENT_CONTROLLER.settleDirectTurn(inner.sessionId, aborted) }
+        : {}),
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
       ...(ruoyiAuthorizationRef ? { ruoyiAuthorizationRef } : {}),
@@ -3496,6 +3562,7 @@ export async function startRpcSession(
       ...(controlledRuoyiSession ? { ruoyiLoadedSkillNames: [...(ruoyiPolicyRef?.current.skillNames ?? [])] } : {}),
       ...(ruoyiSystemPromptRef ? { ruoyiSystemPromptRef } : {}),
       ...(ruoyiBusinessToolLabels ? { ruoyiBusinessToolLabels } : {}),
+      sideChat: isSideChat,
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
