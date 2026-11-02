@@ -94,6 +94,7 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 type RuoyiParentMessage = {
   type: string;
+  hasSession?: boolean;
   screenX?: number;
   screenY?: number;
   text?: string;
@@ -220,7 +221,35 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         }
         ruoyiAuthenticatedRef.current = true;
         setIsRuoyiAuthenticated(true);
-        notifyParent("qimiao-authenticated");
+        postRuoyiParentMessage({ type: "qimiao-authenticated", hasSession: Boolean(sessionId) });
+        if (isHeadlessRuoyi && sessionId) {
+          // 会话接口再次校验当前用户归属；只向父页面返回最后一条助手正文。
+          void fetch(`/api/sessions/${encodeURIComponent(sessionId)}?tail=50&tree=summary&deferThinking=1&deferMedia=1`, {
+            cache: "no-store",
+            headers: { "X-RuoYi-Authorization": token },
+            signal: controller.signal,
+          }).then(async (response) => {
+            if (!response.ok) throw new Error("Session history unavailable");
+            const data = await response.json() as { context?: { messages?: Array<{ role?: string; content?: unknown }> } };
+            const messages = data.context?.messages ?? [];
+            const answer = messages.findLast((message) => message.role === "assistant" && (
+              typeof message.content === "string" ||
+              (Array.isArray(message.content) && message.content.some((block: { type?: string; text?: string }) => block.type === "text" && block.text))
+            ));
+            const text = typeof answer?.content === "string"
+              ? answer.content
+              : Array.isArray(answer?.content)
+                ? answer.content.filter((block: { type?: string }) => block.type === "text").map((block: { text?: string }) => block.text ?? "").join("")
+                : "";
+            if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) {
+              postRuoyiParentMessage({ type: "qimiao-sidebar-last-answer", text });
+            }
+          }).catch(() => {
+            if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) {
+              postRuoyiParentMessage({ type: "qimiao-sidebar-last-answer", text: "", aborted: true });
+            }
+          });
+        }
       } catch {
         if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) {
           ruoyiAuthenticatedRef.current = false;
@@ -232,6 +261,17 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       if (window.parent === window || event.source !== window.parent) return;
       if (!RUOYI_EMBED_ORIGINS.includes(event.origin)) return;
       ruoyiParentOriginRef.current = event.origin;
+      if (event.data?.type === "qimiao-auth-clear") {
+        ruoyiAuthAbortRef.current?.abort();
+        ruoyiAuthTokenRef.current = null;
+        ruoyiAuthenticatedRef.current = false;
+        setRuoyiExternalPrompt(null);
+        setIsRuoyiAuthenticated(false);
+        void fetch("/api/ruoyi-auth", { method: "DELETE" })
+          .then((response) => postRuoyiParentMessage({ type: "qimiao-auth-cleared", aborted: !response.ok }))
+          .catch(() => postRuoyiParentMessage({ type: "qimiao-auth-cleared", aborted: true }));
+        return;
+      }
       if (event.data?.type === "qimiao-auth" && typeof event.data.token === "string" && event.data.token.trim()) {
         setIsWorkbenchInline(event.data.inlineWorkbench === true);
         void establish(event.data.token);
@@ -243,8 +283,40 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         typeof event.data.text === "string" &&
         event.data.text.trim()
       ) {
-        ruoyiPromptSequenceRef.current += 1;
-        setRuoyiExternalPrompt({ id: ruoyiPromptSequenceRef.current, text: event.data.text.trim() });
+        const token = ruoyiAuthTokenRef.current;
+        const controller = ruoyiAuthAbortRef.current;
+        const text = event.data.text.trim();
+        if (!token || !controller) return;
+        // 只刷新认证 Cookie，不重建窗口或重新加载会话；提交前由 RuoYi 重新校验令牌。
+        void fetch("/api/ruoyi-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+          signal: controller.signal,
+        }).then(async (response) => {
+          if (!response.ok) throw new Error("RuoYi authentication failed");
+          if (controller.signal.aborted || ruoyiAuthTokenRef.current !== token || !ruoyiAuthenticatedRef.current) return;
+          const sessionResponse = await fetch("/api/ruoyi-workbench/session", {
+            cache: "no-store",
+            headers: { "X-RuoYi-Authorization": token },
+            signal: controller.signal,
+          });
+          if (!sessionResponse.ok) throw new Error("RuoYi workbench session unavailable");
+          const currentSession = await sessionResponse.json() as { sessionId?: unknown };
+          if (controller.signal.aborted || ruoyiAuthTokenRef.current !== token || !ruoyiAuthenticatedRef.current) return;
+          if (typeof currentSession.sessionId === "string" && currentSession.sessionId !== activeSessionIdRef.current) {
+            postRuoyiParentMessage({ type: "qimiao-agent-session-stale" });
+            return;
+          }
+          ruoyiPromptSequenceRef.current += 1;
+          setRuoyiExternalPrompt({ id: ruoyiPromptSequenceRef.current, text });
+        }).catch(() => {
+          if (!controller.signal.aborted && ruoyiAuthTokenRef.current === token) {
+            ruoyiAuthenticatedRef.current = false;
+            setIsRuoyiAuthenticated(false);
+            postRuoyiParentMessage({ type: "qimiao-agent-response-end", aborted: true });
+          }
+        });
       }
     };
     window.addEventListener("message", receive);
@@ -262,7 +334,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       ruoyiAuthAbortRef.current?.abort();
       window.removeEventListener("message", receive);
     };
-  }, [isEmbeddedRuoyi, isRuoyiIntegration, postRuoyiParentMessage, router]);
+  }, [isEmbeddedRuoyi, isHeadlessRuoyi, isRuoyiIntegration, postRuoyiParentMessage, router]);
   // Keep the system-theme subscription mounted for the lifetime of the app.
   useTheme();
   // Restore fonts even when Settings and the chat composer have not been opened.
@@ -1256,8 +1328,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         ...(getRuoyiAuthorization() ? { "X-RuoYi-Authorization": getRuoyiAuthorization()! } : {}),
       },
       body: JSON.stringify({ sessionId }),
+    }).then((response) => {
+      if (response.ok && !isHeadlessRuoyi) postRuoyiParentMessage({ type: "qimiao-workbench-session-changed" });
     }).catch(() => {});
-  }, [isRuoyiIntegration]);
+  }, [isHeadlessRuoyi, isRuoyiIntegration, postRuoyiParentMessage]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
     if (!isRestore) persistRuoyiWorkbenchSession(session.id);

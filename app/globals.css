@@ -3391,7 +3391,9 @@ span.token.table {
 
 .digital-human-panel {
   display: flex;
+  flex: 1;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   background: var(--bg);

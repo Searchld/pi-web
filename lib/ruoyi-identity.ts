@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const RUOYI_TOKEN_COOKIE = "pi_web_ruoyi_token";
-const IDENTITY_CACHE_TTL_MS = 5_000;
 
 export type RuoyiIdentity = {
   userId: string;
@@ -14,10 +13,6 @@ export type RuoyiIdentity = {
 type IdentityResult =
   | { ok: true; identity: RuoyiIdentity }
   | { ok: false; status: 401 | 503; error: string };
-
-declare global {
-  var __piWebRuoyiIdentityCache: Map<string, { identity: RuoyiIdentity; expiresAt: number }> | undefined;
-}
 
 function baseUrl(): string | undefined {
   return process.env.RUOYI_API_BASE_URL?.trim().replace(/\/+$/, "") || undefined;
@@ -52,19 +47,11 @@ export function shouldUseSecureRuoyiCookie(request: Request): boolean {
   return forwardedProto ? forwardedProto === "https" : new URL(request.url).protocol === "https:";
 }
 
-function cache(): Map<string, { identity: RuoyiIdentity; expiresAt: number }> {
-  return (globalThis.__piWebRuoyiIdentityCache ??= new Map());
-}
-
 /** 只接受 RuoYi /getInfo 已验证的用户标识，绝不信任浏览器传入的 userId。 */
 export async function resolveRuoyiIdentityByAuthorization(authorization: string | undefined): Promise<IdentityResult> {
   if (!authorization) return { ok: false, status: 401, error: "缺少 RuoYi 用户令牌" };
   const url = baseUrl();
   if (!url) return { ok: false, status: 503, error: "RUOYI_API_BASE_URL 未配置" };
-
-  const key = createHash("sha256").update(authorization).digest("hex");
-  const cached = cache().get(key);
-  if (cached && cached.expiresAt > Date.now()) return { ok: true, identity: cached.identity };
 
   let response: Response;
   try {
@@ -88,7 +75,6 @@ export async function resolveRuoyiIdentityByAuthorization(authorization: string 
       ? payload.permissions.filter((permission): permission is string => typeof permission === "string")
       : [],
   };
-  cache().set(key, { identity, expiresAt: Date.now() + IDENTITY_CACHE_TTL_MS });
   return { ok: true, identity };
 }
 
