@@ -412,7 +412,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   }, [visibleIndices]);
 
   // 折叠历史时间段时，标题仍在，不应误显示“暂无会话”。
-  const hasTreeRows = (timeGroupRecent ? rows : displayedRows).some((row) => row.kind === "session" || row.kind === "group");
+  const hasTreeRows = (timeGroupRecent ? rows : displayedRows).some((row) => row.kind === "session" || row.kind === "group" || row.kind === "archive-group");
   const showEmpty = !loading && !error && emptyLabel !== null && !hasTreeRows;
   // While dragging: the group's block is dimmed in place (groups never fold
   // up under the pointer), a line marks the drop, and a pill with the
@@ -815,7 +815,8 @@ function RenameInput({
   );
 }
 
-function DeleteConfirm({
+/** A row's delete confirmation; also a side chat's in the Agents switcher (AgentSessionPanel). */
+export function DeleteConfirm({
   label,
   deleteLabel,
   cancelLabel,

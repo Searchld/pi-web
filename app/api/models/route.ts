@@ -20,7 +20,7 @@ import { cwdMissingBody } from "@/lib/missing-cwd";
 
 export const dynamic = "force-dynamic";
 
-async function loadModels(cwd: string, ruoyiManaged: boolean): Promise<ModelsData> {
+async function loadModels(cwd: string, ruoyiManaged: boolean, scopeAll = false): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
   let modelList: { id: string; name: string; provider: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
@@ -52,7 +52,7 @@ async function loadModels(cwd: string, ruoyiManaged: boolean): Promise<ModelsDat
   // way the CLI does instead of comparing pattern strings literally (#307).
   const scope = await resolveVisibleModels(
     withDeferredProviderModels(services.modelRuntime),
-    settings.getEnabledModels(),
+    scopeAll ? undefined : settings.getEnabledModels(),
   );
   const { visible, thinkingLevelPins, warnings } = scope;
   modelList = orderSelectorModels(scope).map((m) => ({
@@ -96,6 +96,7 @@ async function loadModels(cwd: string, ruoyiManaged: boolean): Promise<ModelsDat
       thinkingLevelMaps,
       thinkingLevelPins,
       ...(warnings.length > 0 ? { modelScopeWarnings: warnings } : {}),
+      isScoped: scopeAll ? false : scope.scopedModels.length > 0,
     },
     modelError,
   );
@@ -110,12 +111,15 @@ const EMPTY_MODELS: ModelsData = {
   thinkingLevels: {},
   thinkingLevelMaps: {},
   thinkingLevelPins: {},
+  isScoped: false,
 };
 
 export async function GET(req: Request) {
+  const url = new URL(req.url);
   const access = isRuoyiIntegrationEnabled() ? await requireRuoyiChatAccess(req) : null;
   if (access instanceof Response) return access;
-  const requestedCwd = resolve(access?.workspace ?? (new URL(req.url).searchParams.get("cwd") || process.cwd()));
+  const requestedCwd = resolve(access?.workspace ?? (url.searchParams.get("cwd") || process.cwd()));
+  const scopeAll = url.searchParams.get("scope") === "all";
   // A subagent run isolated in a worktree has that worktree removed when the run
   // finishes, yet its session file still records the worktree as its cwd. Fall back
   // to the main repo it branched from, so opening a finished subagent resolves the
@@ -142,10 +146,11 @@ export async function GET(req: Request) {
   }
 
   try {
-    // 受管模式与本地模式不能复用缓存：本地模式的缓存可能含有项目扩展注册的模型。
+    // 受管模式不复用可能包含项目扩展的本地模型缓存。
+    const cacheKey = scopeAll ? `${cwd}#all` : cwd;
     const models = access
-      ? await loadModels(cwd, true)
-      : await loadModelsWithCache(cwd, () => loadModels(cwd, false));
+      ? await loadModels(cwd, true, scopeAll)
+      : await loadModelsWithCache(cacheKey, () => loadModels(cwd, false, scopeAll));
     return Response.json(models);
   } catch {
     return Response.json(withSafeModelLoadFailure(EMPTY_MODELS));
