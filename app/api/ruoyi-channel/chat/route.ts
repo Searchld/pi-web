@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       }
       identity = resolved.identity;
     }
-    const policy = await loadRuoyiAgentPolicy(identity);
+    const policy = access ? access.policy : await loadRuoyiAgentPolicy(identity);
     if (!policy.chatEnabled) {
       return NextResponse.json({ error: "当前账户未获得 Agent 使用权限" }, { status: 403 });
     }

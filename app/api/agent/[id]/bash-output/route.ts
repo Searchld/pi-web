@@ -9,7 +9,6 @@ import {
 } from "@/lib/bash-output";
 import { isBashOutputPathReferencedBySession } from "@/lib/session-file-references";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
-import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 
 // GET /api/agent/[id]/bash-output?path=<absPath>
 // Reads a bash output temp file referenced by this session. Inline display is
@@ -21,17 +20,8 @@ export async function GET(
   const { id } = await params;
   const access = await requireIntegrationSessionAccess(req, id);
   if (access && isRuoyiAccessDenied(access)) return access;
-  if (access) {
-    try {
-      if (!(await loadRuoyiAgentPolicy(access.identity)).toolNames.includes("bash")) {
-        return NextResponse.json({ error: "当前账户未获得终端命令权限" }, { status: 403 });
-      }
-    } catch (error) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "读取 Agent 权限失败" },
-        { status: error instanceof RuoyiToolAuthorizationError ? 503 : 500 },
-      );
-    }
+  if (access && !access.policy.toolNames.includes("bash")) {
+    return NextResponse.json({ error: "当前账户未获得终端命令权限" }, { status: 403 });
   }
   let path: string | null = null;
   let download = false;

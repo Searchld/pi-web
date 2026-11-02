@@ -2,7 +2,7 @@ import { createAgentEventStream } from "@/lib/agent-event-stream";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
-import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError, type RuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
+import { RuoyiToolAuthorizationError, type RuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
 import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 import { isValidLivenessHolder } from "@/lib/session-liveness";
@@ -24,7 +24,7 @@ export async function GET(
   let ruoyiPolicy: RuoyiAgentPolicy | undefined;
   let ruoyiSystemPrompt: string | null | undefined;
   try {
-    ruoyiPolicy = access ? await loadRuoyiAgentPolicy(access.identity) : undefined;
+    ruoyiPolicy = access?.policy;
     ruoyiSystemPrompt = access
       ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT)
       : undefined;

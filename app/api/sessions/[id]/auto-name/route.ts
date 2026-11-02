@@ -4,7 +4,6 @@ import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
-import { loadRuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
 
 export async function POST(
   req: Request,
@@ -21,7 +20,7 @@ export async function POST(
     }
 
     const existing = getRpcSession(id);
-    const ruoyiPolicy = access ? await loadRuoyiAgentPolicy(access.identity) : undefined;
+    const ruoyiPolicy = access?.policy;
     const toolNames = ruoyiPolicy?.toolNames;
     if (access && existing?.isAlive()) {
       existing.setRuoyiAuthorization(access.identity.authorization);

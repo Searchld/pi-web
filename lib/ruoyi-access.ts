@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   isRuoyiIntegrationEnabled,
+  readRuoyiAuthorization,
   resolveRuoyiIdentity,
   ruoyiWorkspaceFor,
   type RuoyiIdentity,
 } from "./ruoyi-identity";
 import {
-  loadRuoyiAgentPolicy,
-  RuoyiToolAuthorizationError,
+  normalizeRuoyiAgentPolicy,
   type RuoyiAgentPolicy,
 } from "./ruoyi-tool-policy";
 
@@ -28,16 +28,32 @@ export async function requireRuoyiIdentity(request: Request): Promise<RuoyiIdent
 
 /** 读取当前角色实时策略，权限服务异常时拒绝而不是回退到旧权限。 */
 export async function requireRuoyiPolicy(request: Request): Promise<RuoyiPolicyAccess | NextResponse | null> {
-  const identity = await requireRuoyiIdentity(request);
-  if (identity instanceof NextResponse || identity === null) return identity;
+  if (!isRuoyiIntegrationEnabled()) return null;
+  const authorization = readRuoyiAuthorization(request);
+  if (!authorization) return NextResponse.json({ error: "缺少 RuoYi 用户令牌" }, { status: 401 });
   try {
-    const policy = await loadRuoyiAgentPolicy(identity);
+    const baseUrl = process.env.RUOYI_API_BASE_URL!.trim().replace(/\/+$/, "");
+    const response = await fetch(`${baseUrl}/agent/v1/tool-policy/access`, {
+      headers: { Authorization: authorization, Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    });
+    const payload = await response.json().catch(() => null) as {
+      code?: unknown; data?: { userId?: unknown; policy?: unknown };
+    } | null;
+    if (response.status === 401 || response.status === 403 || Number(payload?.code) === 401 || Number(payload?.code) === 403) {
+      return NextResponse.json({ error: "RuoYi 用户令牌无效或无权访问" }, { status: 401 });
+    }
+    const userId = payload?.data?.userId;
+    if (!response.ok || Number(payload?.code) !== 200 || (typeof userId !== "number" && typeof userId !== "string")
+        || !payload?.data?.policy || typeof payload.data.policy !== "object") {
+      return NextResponse.json({ error: "读取 RuoYi Agent 权限失败" }, { status: 503 });
+    }
+    const identity: RuoyiIdentity = { userId: String(userId), authorization, permissions: [] };
+    const policy = normalizeRuoyiAgentPolicy(payload.data.policy);
     return { identity, policy, workspace: ruoyiWorkspaceFor(identity.userId) };
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "读取 Agent 权限失败" },
-      { status: error instanceof RuoyiToolAuthorizationError ? 503 : 500 },
-    );
+  } catch {
+    return NextResponse.json({ error: "无法连接 RuoYi Agent 权限服务" }, { status: 503 });
   }
 }
 

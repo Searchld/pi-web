@@ -18,7 +18,7 @@ flowchart LR
   RF -->|受控 iframe + 登录令牌| PW[Pi Web 页面]
   PW -->|认证请求| PA[Pi Web API]
   PA -->|/getInfo 验证身份| RJ[RuoYi 后端]
-  PA -->|/agent/v1/tool-policy 读取实时权限| RJ
+  PA -->|/agent/v1/tool-policy/access 验证身份并读取权限| RJ
   PA -->|创建或恢复 Agent 会话| AR[Pi Agent 运行器]
   AR -->|按权限加载| CT[编码/子代理工具]
   AR -->|按权限读取目录并调用| BT[业务查询工具]
@@ -71,8 +71,8 @@ sequenceDiagram
 2. iframe 地址会带 `embedded=1&fresh=1`。`fresh=1` 用于避免沿用 URL 上的旧会话；它本身不是权限控制。
 3. Pi Web 只接收 `window.parent` 发来的 `qimiao-auth`，并且来源必须是 `NEXT_PUBLIC_RUOYI_EMBED_ORIGIN` 配置出的受信任 RuoYi 源。父页面同样只接收自己 iframe、且来源精确匹配的消息。
 4. 令牌不会被 Pi Web 页面保存到 `localStorage`，认证成功后由 Pi Web API 写成 `HttpOnly` Cookie（名称 `pi_web_ruoyi_token`）。浏览器页面拿不到这个 Cookie 的内容。
-5. Pi Web 服务端用令牌请求 RuoYi `/getInfo`，只接受 RuoYi 返回的 `userId`；不会相信浏览器传来的用户 ID。
-6. 身份结果在 Pi Web 进程内短暂缓存 5 秒，仅为减少连续请求，不是长期授权缓存。
+5. Pi Web 服务端用令牌请求 RuoYi `/getInfo` 或 `/agent/v1/tool-policy/access`，只接受 RuoYi 返回的 `userId`；不会相信浏览器传来的用户 ID。
+6. 身份和策略校验结果不跨请求缓存；高频会话请求通过合并接口一次取得身份和权限，仍分别校验会话归属。
 7. RuoYi 切换登录用户时，外层会关闭嵌入窗口，避免旧账户的页面内存被新账户继续看到。
 
 ### 3.3 认证失败会怎样
@@ -90,8 +90,8 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A[RuoYi 当前登录用户] --> B[调用 /getInfo 验证身份]
-  B --> C[读取 /agent/v1/tool-policy]
+  A[RuoYi 当前登录用户] --> B[携带当前用户令牌]
+  B --> C[调用 /agent/v1/tool-policy/access 验证身份并读取策略]
   C --> D{chatEnabled?}
   D -- 否 --> X[拒绝访问 Agent]
   D -- 是 --> E[Pi Web 固定用户工作区]

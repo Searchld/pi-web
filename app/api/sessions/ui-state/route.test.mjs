@@ -61,8 +61,8 @@ test("RuoYi 用户分别保存侧边栏归档状态", async (t) => {
   globalThis.fetch = async (input, init) => {
     const authorization = new Headers(init?.headers).get("Authorization");
     const userId = authorization === "Bearer first-user" ? 1 : 2;
-    if (String(input).endsWith("/agent/v1/tool-policy")) {
-      return new Response(JSON.stringify({ code: 200, data: { chatEnabled: true } }), {
+    if (String(input).endsWith("/agent/v1/tool-policy/access")) {
+      return new Response(JSON.stringify({ code: 200, data: { userId, policy: { chatEnabled: true } } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -97,8 +97,8 @@ test("RuoYi 用户未获聊天权限时不能读取或修改侧边栏状态", as
   const previousBaseUrl = process.env.RUOYI_API_BASE_URL;
   const previousFetch = globalThis.fetch;
   process.env.RUOYI_API_BASE_URL = "http://ruoyi.test";
-  globalThis.fetch = async (input) => new Response(JSON.stringify(String(input).endsWith("/tool-policy")
-    ? { code: 200, data: { chatEnabled: false } }
+  globalThis.fetch = async (input) => new Response(JSON.stringify(String(input).endsWith("/tool-policy/access")
+    ? { code: 200, data: { userId: 3, policy: { chatEnabled: false } } }
     : { code: 200, user: { userId: 3 }, permissions: [] }), {
     status: 200,
     headers: { "Content-Type": "application/json" },

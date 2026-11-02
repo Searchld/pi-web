@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
-import { loadRuoyiAgentPolicy, sameRuoyiCodingToolNames, sameRuoyiSkillNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
+import { sameRuoyiCodingToolNames, sameRuoyiSkillNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 import { cwdMissingBody, missingCwdFromBody } from "@/lib/missing-cwd";
@@ -29,7 +29,7 @@ export async function POST(
       throw new Error("toolNames must be an array of strings");
     }
     const toolNames = requestedToolNames as string[] | undefined;
-    const ruoyiPolicy = access ? await loadRuoyiAgentPolicy(access.identity) : undefined;
+    const ruoyiPolicy = access?.policy;
     const ruoyiSystemPrompt = access
       ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT)
       : undefined;

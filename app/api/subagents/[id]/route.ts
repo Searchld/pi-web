@@ -1,25 +1,14 @@
 import { NextResponse } from "next/server";
 import { abortSubagent, getSubagentRun, steerSubagent } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
-import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
 
 async function authorizeSubagent(request: Request, id: string, permission: "get_subagent_result" | "steer_subagent") {
   const run = await getSubagentRun(id);
   if (!run) return { response: NextResponse.json({ error: "Subagent not found" }, { status: 404 }) };
   const access = await requireIntegrationSessionAccess(request, run.parentSessionId);
   if (access && isRuoyiAccessDenied(access)) return { response: access };
-  if (access) {
-    try {
-      const policy = await loadRuoyiAgentPolicy(access.identity);
-      if (!policy.subagentToolNames.includes(permission)) {
-        return { response: NextResponse.json({ error: "当前账户未获得子 Agent 操作权限" }, { status: 403 }) };
-      }
-    } catch (error) {
-      return { response: NextResponse.json(
-        { error: error instanceof Error ? error.message : "读取 Agent 权限失败" },
-        { status: error instanceof RuoyiToolAuthorizationError ? 503 : 500 },
-      ) };
-    }
+  if (access && !access.policy.subagentToolNames.includes(permission)) {
+    return { response: NextResponse.json({ error: "当前账户未获得子 Agent 操作权限" }, { status: 403 }) };
   }
   return { run };
 }

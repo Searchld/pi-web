@@ -17,6 +17,21 @@ import {
 import { getRuoyiEmbedOrigins } from "@/lib/ruoyi-embed-origins";
 import { resolveRuoyiIdentity } from "@/lib/ruoyi-identity";
 
+// 这些高频路由自身调用 requireRuoyiChatAccess / requireIntegrationSessionAccess。
+function hasRouteLevelRuoyiCheck(pathname: string, method: string): boolean {
+  if (pathname === "/api/ruoyi-workspace") return method === "POST";
+  if (pathname === "/api/ruoyi-workbench/session") return method === "GET" || method === "POST";
+  if (pathname === "/api/agent/running" || pathname === "/api/sessions") return method === "GET";
+  if (pathname === "/api/sessions/ui-state") return method === "GET" || method === "POST";
+  const session = /^\/api\/sessions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/(state|context))?$/i.exec(pathname);
+  if (session) return session[2] ? method === "GET" : ["GET", "PATCH", "DELETE"].includes(method);
+  const match = /^\/api\/agent\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/(events|lease))?$/i.exec(pathname);
+  if (!match) return false;
+  if (match[2] === "events") return method === "GET";
+  if (match[2] === "lease") return method === "POST";
+  return method === "GET" || method === "POST";
+}
+
 function tooManyAttempts(retryAfterMs: number): NextResponse {
   return new NextResponse("Too many failed attempts", {
     status: 429,
@@ -44,12 +59,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  // RuoYi iframe 不使用 Pi Web 密码，但除登录令牌交换外的每个 API 都必须先由
-  // RuoYi /getInfo 验证。路由内仍会执行资源和权限校验；这里负责消除遗漏路由。
+  // 默认由此校验身份；明确列出的高频路由在处理时自行校验身份、权限和资源归属。
   if (process.env.RUOYI_API_BASE_URL?.trim()) {
     const isRuoyiAuthBootstrap = pathname === "/api/ruoyi-auth"
       && (request.method === "POST" || request.method === "DELETE");
-    if (isApiRequest && !isRuoyiAuthBootstrap) {
+    if (isApiRequest && !isRuoyiAuthBootstrap && !hasRouteLevelRuoyiCheck(pathname, request.method)) {
       const identity = await resolveRuoyiIdentity(request);
       if (!identity.ok) {
         return NextResponse.json({ error: identity.error }, {
