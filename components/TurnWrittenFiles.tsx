@@ -10,9 +10,10 @@ import { getFileIcon } from "./FileIcons";
  * preview pane. Entries come from the turn's successful `write`/`edit` tool
  * calls — the reply text is never scanned for paths.
  */
-export function TurnWrittenFiles({ files, onOpenFile }: {
+export function TurnWrittenFiles({ files, onOpenFile, allowDownload }: {
   files: WrittenFile[];
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile?: (filePath: string, page?: number, options?: { download?: boolean }) => void;
+  allowDownload?: boolean;
 }) {
   const { t } = useI18n();
   if (files.length === 0) return null;
@@ -22,8 +23,8 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
       {files.map(({ filePath }) => {
         const name = getFileName(filePath);
         return (
+          <span key={filePath} style={{ display: "inline-flex", gap: 4 }}>
           <button
-            key={filePath}
             type="button"
             title={filePath}
             aria-label={t("chat.openWrittenFile", { name })}
@@ -45,6 +46,14 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
             {getFileIcon(name, 12)}
             <span>{name}</span>
           </button>
+          {allowDownload && onOpenFile && (
+            <button type="button" onClick={() => onOpenFile(filePath, undefined, { download: true })}
+              aria-label={`下载 ${name}`}
+              style={{ padding: "2px 8px", fontSize: 12, color: "var(--text)", background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer" }}>
+              下载
+            </button>
+          )}
+          </span>
         );
       })}
     </div>

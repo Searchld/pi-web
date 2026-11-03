@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
+import { RUOYI_WEB_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { isRuoyiIntegrationEnabled, resolveRuoyiIdentity } from "@/lib/ruoyi-identity";
 import { isApiRequestAllowed, hasJsonContentType } from "@/lib/request-security";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   const identity = await identityForGeneralSettings(request);
   if (identity === null) return NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 404 });
   if (identity instanceof NextResponse) return identity;
-  const preference = await readRuoyiSystemPromptPreference(identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT);
+  const preference = await readRuoyiSystemPromptPreference(identity.userId, RUOYI_WEB_SYSTEM_PROMPT);
   return NextResponse.json(preference, { headers: { "Cache-Control": "no-store" } });
 }
 

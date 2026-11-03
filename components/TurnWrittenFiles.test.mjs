@@ -32,3 +32,9 @@ test("renders a button per file showing the basename and full path", () => {
 test("renders nothing when no files were written", () => {
   assert.equal(render({ files: [], onOpenFile() {} }), "");
 });
+
+test("written files offer a download action only when enabled", () => {
+  const props = { files: [{ filePath: "/workspace/报表.xlsx" }], onOpenFile() {} };
+  assert.match(render({ ...props, allowDownload: true }), /aria-label="下载 报表.xlsx"/);
+  assert.doesNotMatch(render({ ...props, allowDownload: false }), /aria-label="下载 报表.xlsx"/);
+});

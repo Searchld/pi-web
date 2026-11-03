@@ -42,6 +42,21 @@ export function getRelativeFilePath(filePath: string, cwd?: string): string {
   return filePath;
 }
 
+/** 只把工作区内的文件转换为若依接受的相对路径。 */
+export function getWorkspaceDownloadPath(filePath: string, cwd?: string): string | null {
+  if (!cwd) return null;
+  const root = normalizeFilePathSlashes(cwd).replace(/\/+$/, "");
+  const candidate = normalizeFilePathSlashes(filePath);
+  const windows = /^[a-zA-Z]:\//.test(root) || root.startsWith("//");
+  const matches = windows
+    ? candidate.toLowerCase().startsWith(`${root.toLowerCase()}/`)
+    : candidate.startsWith(`${root}/`);
+  if (!matches) return null;
+  const relative = candidate.slice(root.length + 1);
+  if (!relative || relative.split("/").some((part) => !part || part === "." || part === ".." || /[\\:\0]/.test(part))) return null;
+  return relative;
+}
+
 export function joinFilePath(parent: string, child: string): string {
   return `${normalizeFilePathSlashes(parent).replace(/\/$/, "")}/${child}`;
 }

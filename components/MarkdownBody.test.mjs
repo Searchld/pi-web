@@ -27,6 +27,11 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("workspace download links retain their download marker", () => {
+  const html = renderMarkdown("[下载文件](./报告.xlsx#download)", { cwd: "/workspace", onOpenFile() {} });
+  assert.match(html, /href="\.\/%E6%8A%A5%E5%91%8A\.xlsx#download"/);
+});
+
 test("a document reader keeps local links in the page without an href", () => {
   const local = renderMarkdown("[relative](references/setup.md#config) [anchor](#config) [outside](../outside.md) [absolute](/etc/test.md) [attachment](image.png)", { onOpenFile: undefined, onNavigateLink() {} });
   assert.equal((local.match(/<a role="link" tabindex="0">/g) ?? []).length, 5);

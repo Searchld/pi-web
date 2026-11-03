@@ -8,7 +8,7 @@ import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 import { isRuoyiIntegrationEnabled, resolveRuoyiIdentity, ruoyiWorkspaceFor, type RuoyiIdentity } from "@/lib/ruoyi-identity";
 import { loadRuoyiAgentPolicy, RuoyiToolAuthorizationError, type RuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
-import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
+import { RUOYI_WEB_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 import { cwdMissingBody } from "@/lib/missing-cwd";
 
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "当前账户未获得 Agent 使用权限" }, { status: 403 });
       }
       cwd = ruoyiWorkspaceFor(identity.identity.userId);
-      ruoyiSystemPrompt = await loadRuoyiSystemPrompt(identity.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT);
+      ruoyiSystemPrompt = await loadRuoyiSystemPrompt(identity.identity.userId, RUOYI_WEB_SYSTEM_PROMPT);
       await mkdir(cwd, { recursive: true });
     }
 

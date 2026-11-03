@@ -31,7 +31,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
-import { getFileName } from "@/lib/file-paths";
+import { getFileName, getWorkspaceDownloadPath } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
@@ -98,6 +98,7 @@ type RuoyiParentMessage = {
   screenX?: number;
   screenY?: number;
   text?: string;
+  path?: string;
   aborted?: boolean;
   toolCallId?: string;
   toolName?: string;
@@ -1726,9 +1727,15 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     if (isMobile) setSidebarOpen(false);
   }, [isMobile, isRuoyiIntegration]);
 
-  const handleOpenLinkedFile = useCallback((filePath: string, page?: number) => {
+  const handleOpenLinkedFile = useCallback((filePath: string, page?: number, options?: { download?: boolean }) => {
+    // 会话切换可能移除 embedded 参数，仍需通过父页面完成认证下载。
+    if (options?.download && isRuoyiIntegration && window.parent !== window && ruoyiAuthenticatedRef.current) {
+      const path = getWorkspaceDownloadPath(filePath, selectedSession?.cwd ?? newSessionCwd ?? activeCwd ?? undefined);
+      if (path) postRuoyiParentMessage({ type: "qimiao-file-download", path });
+      return;
+    }
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null, page });
-  }, [handleOpenFile, selectedSession?.id]);
+  }, [handleOpenFile, selectedSession?.cwd, selectedSession?.id, newSessionCwd, activeCwd, isRuoyiIntegration, postRuoyiParentMessage]);
 
   const handleOpenTerminal = useCallback((cwd: string) => {
     if (!terminalAccess.allowed) return;

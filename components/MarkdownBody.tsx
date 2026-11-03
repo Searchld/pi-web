@@ -20,7 +20,7 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
-  onOpenFile?: (filePath: string, page?: number) => void;
+  onOpenFile?: (filePath: string, page?: number, options?: { download?: boolean }) => void;
   /** A document reader's own links: relative paths and `#headings` stay in the reader. */
   onNavigateLink?: (href: string) => void;
   /** Text the user typed: every line ending is a line break and raw HTML shows as text, as in pi's TUI. */
@@ -192,7 +192,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         const target = event.currentTarget.getAttribute("target");
         if (target && target !== "_self") return;
         event.preventDefault();
-        openFile(filePath, parsePdfPageFragment(href) ?? undefined);
+        const label = Array.isArray(children) ? children.filter((item) => typeof item === "string").join("") : children;
+        const download = href?.endsWith("#download") || (typeof label === "string" && /^(下载|download)/i.test(label.trim()));
+        openFile(filePath, parsePdfPageFragment(href) ?? undefined, download ? { download: true } : undefined);
       };
 
       return (

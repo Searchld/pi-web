@@ -3,7 +3,7 @@ import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 import { sameRuoyiCodingToolNames, sameRuoyiSkillNames, RuoyiToolAuthorizationError } from "@/lib/ruoyi-tool-policy";
-import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
+import { RUOYI_WEB_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 import { cwdMissingBody, missingCwdFromBody } from "@/lib/missing-cwd";
 
@@ -31,7 +31,7 @@ export async function POST(
     const toolNames = requestedToolNames as string[] | undefined;
     const ruoyiPolicy = access?.policy;
     const ruoyiSystemPrompt = access
-      ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT)
+      ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_WEB_SYSTEM_PROMPT)
       : undefined;
     if (access && body.type === "bash" && !ruoyiPolicy!.toolNames.includes("bash")) {
       throw new RuoyiToolAuthorizationError("当前账户未获得终端命令权限");

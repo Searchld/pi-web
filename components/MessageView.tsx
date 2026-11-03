@@ -985,7 +985,7 @@ function AssistantMessageView({
       )}
 
       {writtenFiles && writtenFiles.length > 0 && (
-        <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} />
+        <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenFile} allowDownload={businessMode} />
       )}
 
       {((!businessMode && stats.length > 0 && !isStreaming) || textContent || (time && !isStreaming && !businessMode)) && (

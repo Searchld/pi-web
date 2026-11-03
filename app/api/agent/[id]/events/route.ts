@@ -3,7 +3,7 @@ import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { isRuoyiAccessDenied, requireIntegrationSessionAccess } from "@/lib/ruoyi-session-access";
 import { RuoyiToolAuthorizationError, type RuoyiAgentPolicy } from "@/lib/ruoyi-tool-policy";
-import { RUOYI_BUSINESS_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
+import { RUOYI_WEB_SYSTEM_PROMPT } from "@/lib/ruoyi-business-tools";
 import { loadRuoyiSystemPrompt } from "@/lib/ruoyi-system-prompt";
 import { isValidLivenessHolder } from "@/lib/session-liveness";
 import { describeStreamClient } from "@/lib/stream-client";
@@ -26,7 +26,7 @@ export async function GET(
   try {
     ruoyiPolicy = access?.policy;
     ruoyiSystemPrompt = access
-      ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_BUSINESS_SYSTEM_PROMPT)
+      ? await loadRuoyiSystemPrompt(access.identity.userId, RUOYI_WEB_SYSTEM_PROMPT)
       : undefined;
   } catch (error) {
     return new Response(error instanceof Error ? error.message : "读取 RuoYi Agent 权限失败", {
