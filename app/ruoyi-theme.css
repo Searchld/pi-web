@@ -1,0 +1,13 @@
+/* RuoYi 浅色界面的面板和菜单统一使用白色背景，深色主题沿用原色。 */
+html:not(.dark) body.ruoyi-integrated {
+  --bg-panel: #fff;
+  --bg-hover: #f7f8fa;
+  --bg-selected: #f4f5f7;
+  --border: #e4e7ed;
+  --tool-bg: #fff;
+  --bg-subtle: rgb(0 0 0 / 3%);
+}
+
+html:not(.dark) body.ruoyi-integrated .agent-session-row {
+  --bg-selected: #fff;
+}

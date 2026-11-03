@@ -537,6 +537,12 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   }, [rightPanelOpen]);
   useEffect(() => {
     if (!isRuoyiIntegration) return;
+    // 手机每次打开时默认关闭，不覆盖电脑端的账号偏好。
+    if (window.matchMedia("(max-width: 640px)").matches) {
+      setDigitalHumanOpen(false);
+      setDigitalHumanVisibilityReady(true);
+      return;
+    }
     let active = true;
     void fetch("/api/ruoyi-digital-human", { cache: "no-store" })
       .then(async (response) => response.ok ? response.json() as Promise<{ settings?: Record<string, string> }> : null)
@@ -896,6 +902,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
 
   const updateDigitalHumanVisibility = useCallback(async (open: boolean) => {
     if (!digitalHumanVisibilityReady || digitalHumanVisibilitySavingRef.current) return;
+    if (isMobile) {
+      setDigitalHumanOpen(open);
+      return;
+    }
     const previousOpen = digitalHumanOpen;
     setDigitalHumanOpen(open);
     digitalHumanVisibilitySavingRef.current = true;
@@ -911,7 +921,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     } finally {
       digitalHumanVisibilitySavingRef.current = false;
     }
-  }, [digitalHumanOpen, digitalHumanVisibilityReady]);
+  }, [digitalHumanOpen, digitalHumanVisibilityReady, isMobile]);
 
   const handleDigitalHumanToggle = useCallback(() => {
     if (isMobile) {
@@ -2688,8 +2698,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     );
   };
 
-  // Icon only, right of the chat's actions; on a desktop it takes the bar's free space, so it
-  // sits left of the session stats. It only opens or closes its panel: nothing is loaded here.
+  // 调试入口与聊天操作放在一起，点击后才加载面板。
   const renderDebugButton = (mobile: boolean) => {
     if (!showChat) return null;
     const open = activeTopPanel === "debug";
@@ -2702,7 +2711,6 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         aria-label={translate("debug.title")}
         aria-pressed={open}
         style={{
-          marginLeft: mobile ? 0 : "auto",
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0,
           background: open ? "var(--bg-selected)" : "none",
@@ -3123,6 +3131,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderDebugButton(false)}
+              {showChat && <div style={{ flex: 1 }} />}
             </>
           )}
           {!isMobile && renderOpenSessionInNewTab(false)}

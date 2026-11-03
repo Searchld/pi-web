@@ -258,6 +258,7 @@ function AgentRow({
   return (
     <div
       ref={rowRef}
+      className="agent-session-row"
       style={{
         display: "flex",
         borderBottom: "1px solid var(--border)",

@@ -8,6 +8,7 @@ import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import "./ruoyi-theme.css";
 import "./settings.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
@@ -72,7 +73,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body translate="no" className="notranslate" suppressHydrationWarning>
+      <body translate="no" className={isRuoyiIntegration ? "notranslate ruoyi-integrated" : "notranslate"} suppressHydrationWarning>
         <Script id="pi-web-base-path-fetch" strategy="beforeInteractive">
           {appBasePathRequestBootstrap()}
         </Script>

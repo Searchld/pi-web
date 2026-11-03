@@ -505,6 +505,10 @@ export class AgentSessionWrapper {
     return this.ruoyiPolicyRef?.current.toolNames;
   }
 
+  isSideChat(): boolean {
+    return this.sideChat;
+  }
+
   getRuoyiLoadedSkillNames(): readonly string[] | undefined {
     return this.ruoyiLoadedSkillNames;
   }
@@ -3173,7 +3177,7 @@ export async function startRpcSession(
 
   const existing = registry.get(sessionId);
   if (existing?.isAlive()) {
-    if (forceToolNames && requestedToolNames !== undefined && !existing.isRunning()) {
+    if (forceToolNames && requestedToolNames !== undefined && !existing.isRunning() && !existing.isSideChat()) {
       appendSessionToolSelection(existing.inner.sessionManager, requestedToolNames);
       existing.setActiveToolSelection(requestedToolNames);
       invalidateSessionListCache();
@@ -3206,6 +3210,8 @@ export async function startRpcSession(
   }
   const sessionCwd = sessionManager.getCwd();
   const sessionEntries = sessionManager.getEntries() as unknown as SessionEntry[];
+  const isSideChat = hasSideMetadata(sessionEntries);
+  if (isSideChat && !readSideRelation(sessionEntries)) throw new Error("Invalid side chat metadata");
   const hasPersistedSubagentSnapshot = sessionFile && hasSubagentResourceSnapshot(sessionEntries);
   const subagentResources = sessionFile
     ? readSubagentSessionResources(sessionEntries)
@@ -3217,8 +3223,8 @@ export async function startRpcSession(
     ? undefined
     : readSessionToolSelection(sessionEntries);
   const pinnedToolNames = subagentResources?.tools
-    ?? (forceToolNames && requestedToolNames !== undefined ? requestedToolNames : persistedToolNames ?? requestedToolNames);
-  if (!subagentResources && requestedToolNames !== undefined && (
+    ?? (isSideChat ? persistedToolNames : forceToolNames && requestedToolNames !== undefined ? requestedToolNames : persistedToolNames ?? requestedToolNames);
+  if (!subagentResources && !isSideChat && requestedToolNames !== undefined && (
     persistedToolNames === undefined || (forceToolNames && !sameToolNames(persistedToolNames, requestedToolNames))
   )) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
@@ -3246,14 +3252,16 @@ export async function startRpcSession(
   const chatOnly = pinnedToolNames?.length === 0 && !subagentLoadsResources && !ruoyiExtensionsEnabled;
   const ruoyiSkillFiles = new Set<string>();
   // A side chat (ADR 0007) starts as a normal session, or as Chat only, with fewer tools.
-  const isSideChat = hasSideMetadata(sessionEntries);
-  if (isSideChat && !readSideRelation(sessionEntries)) throw new Error("Invalid side chat metadata");
   const sideChatTools = isSideChat && !chatOnly;
-  const selectedToolNames = sideChatTools
+  const sideTools = sideChatTools
     ? sideToolNames(pinnedToolNames, sessionManager.getBranch().flatMap((entry) => (
         entry.type === "message" && entry.message.role === "system" ? [entry.message] : []
       )))
     : pinnedToolNames;
+  // 侧聊保留派生时的工具上限，并始终受当前 RuoYi 权限约束。
+  const selectedToolNames = isSideChat && options.ruoyiPolicy
+    ? (sideTools ?? []).filter((name) => options.ruoyiPolicy!.toolNames.includes(name))
+    : sideTools;
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.

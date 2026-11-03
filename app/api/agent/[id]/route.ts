@@ -54,12 +54,23 @@ export async function POST(
     if (existing?.isAlive()) {
       let session = existing;
       if (access) {
-        const codingToolsChanged = !sameRuoyiCodingToolNames(existing.getActiveCodingToolNames(), ruoyiPolicy!.toolNames);
+        const currentTools = existing.isSideChat() ? existing.getRuoyiCodingToolNames() : existing.getActiveCodingToolNames();
+        const codingToolsChanged = !currentTools || !sameRuoyiCodingToolNames(currentTools, ruoyiPolicy!.toolNames);
         const skillsChanged = !sameRuoyiSkillNames(existing.getRuoyiLoadedSkillNames(), ruoyiPolicy!.skillNames);
         existing.setRuoyiAuthorization(access.identity.authorization);
-        existing.setRuoyiPolicy(ruoyiPolicy!);
         existing.setRuoyiSystemPrompt(ruoyiSystemPrompt!);
-        if (codingToolsChanged || skillsChanged) {
+        if ((codingToolsChanged || skillsChanged) && existing.isSideChat()) {
+          if (existing.isRunning()) throw new Error("会话运行期间无法更新工具权限");
+          const filePath = existing.sessionFile;
+          await existing.shutdown();
+          session = (await startRpcSession(id, filePath, undefined, {
+            toolNames: ruoyiPolicy!.toolNames,
+            ruoyiAuthorization: access.identity.authorization,
+            ruoyiPolicy,
+            ruoyiSystemPrompt,
+            forceToolNames: true,
+          })).session;
+        } else if (codingToolsChanged || skillsChanged) {
           const tightened = await setRpcSessionTools(id, existing.sessionFile || undefined, ruoyiPolicy!.toolNames, {
             ruoyiAuthorization: access.identity.authorization,
             ruoyiPolicy,
@@ -68,6 +79,7 @@ export async function POST(
           });
           session = tightened.session;
         }
+        session.setRuoyiPolicy(ruoyiPolicy!);
       }
       const result = await session.send(body);
       promptAccepted = body.type === "prompt";
