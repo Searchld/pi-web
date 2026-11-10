@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -3315,6 +3315,11 @@ export async function startRpcSession(
         : []),
       ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
     ];
+    // 受控会话从全局配置独立加载技能，用户工作区不能覆盖共享技能。
+    const sharedSkillLoader = controlledRuoyiSession
+      ? new DefaultResourceLoader({ cwd: agentDir, agentDir, noExtensions: true, noPromptTemplates: true, noThemes: true, noContextFiles: true })
+      : undefined;
+    await sharedSkillLoader?.reload();
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -3344,7 +3349,8 @@ export async function startRpcSession(
               noPromptTemplates: true,
               noThemes: true,
               noContextFiles: true,
-              skillsOverride: ({ skills, diagnostics }) => {
+              skillsOverride: () => {
+                const { skills, diagnostics } = sharedSkillLoader!.getSkills();
                 const allowed = new Set(ruoyiPolicyRef?.current.skillNames ?? []);
                 const authorized = skills.filter((skill) => allowed.has(skill.name));
                 for (const skill of authorized) {

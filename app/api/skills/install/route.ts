@@ -4,7 +4,7 @@ import { runNpx } from "@/lib/npx";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
-import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSharedSettingsWriteAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ const ANSI_RE = /\x1B\[[0-9;]*m/g;
 
 // POST /api/skills/install  body: { package: string; scope: "global" | "project"; cwd?: string }
 export async function POST(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "skills");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "skills");
   if (denied) return denied;
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
@@ -26,8 +26,8 @@ export async function POST(req: Request) {
     const { package: pkg, scope, cwd } = await req.json() as { package?: string; scope?: string; cwd?: string };
     if (!pkg?.trim()) return NextResponse.json({ error: "package required" }, { status: 400 });
 
-    // 企业用户各自拥有固定工作区，不能把技能安装到所有用户共用的全局目录。
-    const isGlobal = !isRuoyiIntegrationEnabled() && scope !== "project";
+    // 企业模式固定安装到共享目录。
+    const isGlobal = isRuoyiIntegrationEnabled() || scope !== "project";
     if (!isGlobal) {
       if (!cwd) return NextResponse.json({ error: "cwd required for project install" }, { status: 400 });
       const allowedRoots = await getAllowedFileRoots();

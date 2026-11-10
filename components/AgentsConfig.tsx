@@ -45,8 +45,8 @@ const THINKING_OPTIONS = ["", "off", "minimal", "low", "medium", "high", "xhigh"
 type EditableProfile = Omit<SubagentProfile, "scope" | "filePath">;
 type EditorMode = "view" | "edit" | "create";
 
-export function defaultSubagentProfileScope(isRuoyiIntegration: boolean): SubagentWritableScope {
-  return isRuoyiIntegration ? "project" : "global";
+export function defaultSubagentProfileScope(): SubagentWritableScope {
+  return "global";
 }
 
 const EMPTY_PROFILE: EditableProfile = {
@@ -218,7 +218,7 @@ export function AgentsConfig({
   const [selectedKey, setSelectedKey] = useState<string | null>(() => getLastSettingsSelection("agents", cwd));
   const [draft, setDraft] = useState<EditableProfile>(EMPTY_PROFILE);
   const [mode, setMode] = useState<EditorMode>("view");
-  const [targetScope, setTargetScope] = useState<SubagentWritableScope>(() => defaultSubagentProfileScope(isRuoyiIntegration));
+  const [targetScope, setTargetScope] = useState<SubagentWritableScope>(() => defaultSubagentProfileScope());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -347,7 +347,7 @@ export function AgentsConfig({
     setSelectedKey(null);
     setDraft({ ...EMPTY_PROFILE, name, displayName: name });
     setMode("create");
-    setTargetScope(defaultSubagentProfileScope(isRuoyiIntegration));
+    setTargetScope(defaultSubagentProfileScope());
     setError(null);
   };
 
@@ -361,7 +361,7 @@ export function AgentsConfig({
       displayName: t("agents.copyName", { name: selected.displayName }),
     });
     setMode("create");
-    setTargetScope(isRuoyiIntegration ? "project" : isWritableScope(selected.scope) ? selected.scope : "global");
+    setTargetScope(isRuoyiIntegration ? "global" : isWritableScope(selected.scope) ? selected.scope : "global");
     setError(null);
   };
 
@@ -410,11 +410,9 @@ export function AgentsConfig({
 
   const editing = mode !== "view";
   const creating = mode === "create";
-  const availableTargetScopes: readonly SubagentWritableScope[] = isRuoyiIntegration ? ["project"] : ["global", "project"];
+  const availableTargetScopes: readonly SubagentWritableScope[] = isRuoyiIntegration ? ["global"] : ["global", "project"];
   const disabled = !editing || saving || toggling;
   const displayedScope = creating ? targetScope : selected?.scope;
-  // RuoYi 的可写 profile 只能落在当前用户固定项目目录，不重复展示范围和路径。
-  const hideFixedProjectTarget = isRuoyiIntegration && (creating || displayedScope === "project");
   const displayedPath = creating
     ? targetScope === "global"
       ? `~/.pi/agent/agents/${draft.name || "..."}.md`
@@ -605,7 +603,7 @@ export function AgentsConfig({
                   <ConfigDetailHeader>
                     <ConfigDetailHeaderInfo>
                       {/* A new profile chooses its scope where a saved one shows it. */}
-                      {hideFixedProjectTarget ? null : creating ? (
+                      {creating ? (
                         <ConfigSaveTarget
                           value={targetScope}
                           label={t("config.saveTo")}

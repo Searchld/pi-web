@@ -1,3 +1,4 @@
+import { isRuoyiIntegrationEnabled } from "./ruoyi-identity";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getAgentDir, type LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import { dump as stringifyYaml } from "js-yaml";
@@ -452,8 +453,11 @@ function readProfileDirectory(dir: string, scope: SubagentScope, cwd: string): S
 }
 
 function profileDirectories(cwd: string): Array<[string, Exclude<SubagentScope, "builtin">]> {
-  return [
+  const globalProfiles: Array<[string, Exclude<SubagentScope, "builtin">]> = [
     [join(getAgentDir(), "agents"), "global"],
+  ];
+  if (isRuoyiIntegrationEnabled()) return globalProfiles;
+  return [...globalProfiles,
     [join(resolve(cwd), ".agents", "agents"), "workspace"],
     [join(resolve(cwd), ".pi", "agents"), "project"],
   ];

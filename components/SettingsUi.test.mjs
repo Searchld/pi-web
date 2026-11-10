@@ -9,7 +9,7 @@ const configSources = await Promise.all(
   ]),
 );
 
-test("local add panes show one save target; RuoYi hides the fixed project target", async () => {
+test("local add panes show the save target and limit RuoYi to global resources", async () => {
   const sources = Object.fromEntries(configSources);
   const panes = {
     SkillsConfig: sources.SkillsConfig.match(/function AddSkillPanel[\s\S]*?\n\}\n/)?.[0] ?? "",
@@ -22,9 +22,11 @@ test("local add panes show one save target; RuoYi hides the fixed project target
     assert.match(source, /<ConfigSaveTarget[\s\S]*?label=\{t\("config\.saveTo"\)\}[\s\S]*?path=\{/, name);
     assert.doesNotMatch(source, /<ConfigScopeSwitch/, `${name} uses the shared row, not a switch of its own`);
   }
-  for (const name of ["SkillsConfig", "PluginsConfig", "McpAddServer"]) {
-    assert.match(panes[name], /target=\{projectOnly \? null : \(/, `${name} hides the fixed RuoYi project target`);
+  for (const name of ["SkillsConfig", "PluginsConfig"]) {
+    assert.match(panes[name], /!globalOnly/, `${name} limits RuoYi to global`);
   }
+  assert.match(panes.McpAddServer, /target=\{projectOnly \? null : \(/);
+
 });
 
 test("the MCP panel's reasons are visible text, never only a tooltip", () => {

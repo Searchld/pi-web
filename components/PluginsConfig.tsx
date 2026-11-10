@@ -137,8 +137,8 @@ function installLocation(scope: PluginScope, cwd: string): string {
     : "~/.pi/agent/{npm,git}";
 }
 
-export function defaultPluginInstallScope(isRuoyiIntegration: boolean): PluginScope {
-  return isRuoyiIntegration ? "project" : "global";
+export function defaultPluginInstallScope(): PluginScope {
+  return "global";
 }
 
 function findInstalledPackage(
@@ -254,7 +254,7 @@ function AddPluginPanel({
   source,
   scope,
   projectResourcesLoaded,
-  projectOnly,
+  globalOnly,
   busy,
   actionError,
   onSourceChange,
@@ -265,8 +265,8 @@ function AddPluginPanel({
   source: string;
   scope: PluginScope;
   projectResourcesLoaded: boolean;
-  /** RuoYi 用户的插件只安装到各自固定工作区。 */
-  projectOnly: boolean;
+  /** RuoYi 用户的插件只安装到共享目录。 */
+  globalOnly: boolean;
   busy: boolean;
   actionError: string | null;
   onSourceChange: (value: string) => void;
@@ -292,13 +292,13 @@ function AddPluginPanel({
           </svg>
         ),
       }]}
-      target={projectOnly ? null : (
+      target={(
         <ConfigSaveTarget
           value={scope}
           label={t("config.saveTo")}
           options={[
             { value: "global", label: scopeLabel("global", t) },
-            { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+            ...(!globalOnly ? [{ value: "project" as const, label: scopeLabel("project", t), disabled: !projectResourcesLoaded }] : []),
           ]}
           path={installLocation(scope, cwd)}
           disabledReason={t("trust.projectScopeUnavailable")}
@@ -595,7 +595,7 @@ export function PluginsConfig({
   const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("plugins", cwd));
   const [addMode, setAddMode] = useState(false);
   const [installSource, setInstallSource] = useState("");
-  const [installScope, setInstallScope] = useState<PluginScope>(() => defaultPluginInstallScope(isRuoyiIntegration));
+  const [installScope, setInstallScope] = useState<PluginScope>(() => defaultPluginInstallScope());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -1021,7 +1021,7 @@ export function PluginsConfig({
                 source={installSource}
                 scope={installScope}
                 projectResourcesLoaded={projectResourcesLoaded}
-                projectOnly={isRuoyiIntegration}
+                globalOnly={isRuoyiIntegration}
                 busy={addBusy}
                 actionError={actionError}
                 onSourceChange={setInstallSource}

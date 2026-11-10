@@ -27,7 +27,6 @@ test("switching a group off leaves an enabled filtered package on and says so", 
   assert.deepEqual(filteredPackagesKeptOn(withFiltered).map((pkg) => pkg.source), ["npm:filtered-on"]);
 });
 
-test("RuoYi plugin installs default to the project scope", () => {
-  assert.equal(defaultPluginInstallScope(true), "project");
-  assert.equal(defaultPluginInstallScope(false), "global");
+test("RuoYi plugin installs default to the global scope", () => {
+  assert.equal(defaultPluginInstallScope(), "global");
 });

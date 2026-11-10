@@ -357,14 +357,14 @@ function AddSkillPanel({
   cwd,
   installedPackages,
   projectResourcesLoaded,
-  projectOnly,
+  globalOnly,
   onInstalled,
 }: {
   cwd: string;
   installedPackages: Record<SkillInstallScope, ReadonlySet<string>>;
   projectResourcesLoaded: boolean;
-  /** RuoYi 用户的技能只安装到各自固定工作区。 */
-  projectOnly: boolean;
+  /** RuoYi 用户的技能只安装到共享目录。 */
+  globalOnly: boolean;
   onInstalled: () => void;
 }) {
   const { t } = useI18n();
@@ -377,7 +377,7 @@ function AddSkillPanel({
   const [newlyInstalledPkgs, setNewlyInstalledPkgs] = useState<Set<string>>(
     new Set(),
   );
-  const [scope, setScope] = useState<"global" | "project">(() => projectOnly ? "project" : "global");
+  const [scope, setScope] = useState<"global" | "project">(() => "global");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -459,13 +459,13 @@ function AddSkillPanel({
         <ConfigAddSourceHeading
           title={t("i18n.addSkill")}
           catalogs={[{ href: "https://skills.sh", label: "skills.sh" }]}
-          target={projectOnly ? null : (
+          target={(
             <ConfigSaveTarget
               value={scope}
               label={t("config.saveTo")}
               options={[
                 { value: "global", label: scopeLabel("global", t) },
-                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+                ...(!globalOnly ? [{ value: "project" as const, label: scopeLabel("project", t), disabled: !projectResourcesLoaded }] : []),
               ]}
               path={installPath}
               disabledReason={t("trust.projectScopeUnavailable")}
@@ -1017,7 +1017,7 @@ export function SkillsConfig({
               <AddSkillPanel
                 cwd={cwd}
                 projectResourcesLoaded={projectResourcesLoaded}
-                projectOnly={isRuoyiIntegration}
+                globalOnly={isRuoyiIntegration}
                 installedPackages={{
                   global: new Set(
                     skills

@@ -1,3 +1,4 @@
+import { isRuoyiIntegrationEnabled } from "./ruoyi-identity";
 import { DefaultResourceLoader, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { SkillInfo, SkillsResponse } from "@/lib/api-types";
 import { annotateSkillsWithInstallInfo } from "@/lib/skill-lock";
@@ -5,6 +6,7 @@ import { getProjectTrustStatus, projectTrustReloadOptions } from "@/lib/project-
 
 export async function loadSkillsWithInstallInfo(cwd: string): Promise<SkillsResponse> {
   const agentDir = getAgentDir();
+  if (isRuoyiIntegrationEnabled()) cwd = agentDir;
   // Extensions add skills only through `resources_discover` at session_start,
   // which a listing never runs, so loading them here would only import every
   // extension for nothing (#1226).

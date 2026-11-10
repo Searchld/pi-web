@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, requireRuoyiSharedSettingsWriteAccess } from "@/lib/ruoyi-settings-access";
 import {
   readSubagentSettings,
   MAX_SUBAGENT_MAX_CONCURRENT,
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "agents");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "agents");
   if (denied) return denied;
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });

@@ -13,7 +13,7 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
-import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, requireRuoyiSharedSettingsWriteAccess, requireRuoyiOwnWorkspace } from "@/lib/ruoyi-settings-access";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 import { invalidateModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import type {
@@ -417,7 +417,9 @@ export async function GET(req: Request) {
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
-    return NextResponse.json(await readPlugins(cwd));
+    const workspaceDenied = await requireRuoyiOwnWorkspace(req, cwd);
+    if (workspaceDenied) return workspaceDenied;
+    return NextResponse.json(await readPlugins(isRuoyiIntegrationEnabled() ? getAgentDir() : cwd));
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -427,7 +429,7 @@ export async function GET(req: Request) {
 // enable/disable also take { packages: [{ source, scope }] } in place of
 // source/scope and add per-package `results` to the response.
 export async function POST(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "plugins");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "plugins");
   if (denied) return denied;
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
@@ -451,16 +453,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    // 企业用户各自拥有固定工作区，不能把新插件安装到所有用户共用的全局目录。
-    const isRuoyiProjectInstall = isRuoyiIntegrationEnabled() && body.action === "install";
-    if (isRuoyiProjectInstall) {
-      const trustDenied = await trustVerifiedRuoyiWorkspace(req, body.cwd);
-      if (trustDenied) return trustDenied;
-    }
+    const workspaceDenied = await requireRuoyiOwnWorkspace(req, body.cwd);
+    if (workspaceDenied) return workspaceDenied;
 
     const agentDir = getAgentDir();
-    const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
-    const settingsManager = SettingsManager.create(body.cwd, agentDir, {
+    const resourceCwd = isRuoyiIntegrationEnabled() ? agentDir : body.cwd;
+    const projectTrust = getProjectTrustStatus(resourceCwd, agentDir);
+    const settingsManager = SettingsManager.create(resourceCwd, agentDir, {
       projectTrusted: projectTrust.trusted,
     });
 
@@ -472,16 +471,19 @@ export async function POST(req: Request) {
       if (!packages) {
         return NextResponse.json({ error: "packages must be a list of { source, scope }" }, { status: 400 });
       }
+      if (isRuoyiIntegrationEnabled() && packages.some((pkg) => pkg.scope === "project")) {
+        return NextResponse.json({ error: "只允许管理全局插件" }, { status: 403 });
+      }
       const results = await setPackageListDisabled(
         settingsManager,
         packages,
         body.action === "disable",
         projectTrust.trusted,
       );
-      return NextResponse.json({ ...(await readPlugins(body.cwd)), results } satisfies PluginsBulkResponse);
+      return NextResponse.json({ ...(await readPlugins(resourceCwd)), results } satisfies PluginsBulkResponse);
     }
 
-    const scope = isRuoyiProjectInstall ? "project" : readScope(body.scope);
+    const scope = isRuoyiIntegrationEnabled() ? "global" : readScope(body.scope);
     if (scope === "project" && !projectTrust.trusted) {
       return NextResponse.json(
         { error: "Project resources must be trusted before modifying project plugins" },
@@ -489,7 +491,7 @@ export async function POST(req: Request) {
       );
     }
     const packageManager = new DefaultPackageManager({
-      cwd: body.cwd,
+      cwd: resourceCwd,
       agentDir,
       settingsManager,
     });
@@ -522,7 +524,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Unsupported action: ${body.action}` }, { status: 400 });
     }
 
-    return NextResponse.json(await readPlugins(body.cwd));
+    return NextResponse.json(await readPlugins(resourceCwd));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   } finally {

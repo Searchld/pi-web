@@ -7,7 +7,7 @@ import type { SkillToggleResult } from "@/lib/api-types";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { setDisableModelInvocation } from "@/lib/skill-frontmatter";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, requireRuoyiSharedSettingsWriteAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +72,7 @@ function toggleSkillFile(
 // "Disable all". A batch edits each file on its own and reports every one, so
 // a skill the route refuses does not stop the rest.
 export async function PATCH(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "skills");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "skills");
   if (denied) return denied;
   try {
     const body = await req.json() as {

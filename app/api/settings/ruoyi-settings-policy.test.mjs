@@ -34,28 +34,18 @@ const routes = [
 test("RuoYi 设置权限同时保护页签背后的 API", async () => {
   for (const [section, route] of routes) {
     const source = await readFile(route, "utf8");
-    assert.match(source, new RegExp(`requireRuoyiSettingsAccess\\(req, "${section}"\\)`), route);
+    assert.match(source, new RegExp(`requireRuoyi(?:SharedSettingsWriteAccess|SettingsAccess)\\(req, "${section}"\\)`), route);
   }
 });
 
-test("RuoYi 技能安装固定写入用户项目目录，不接受全局范围", async () => {
-  const source = await readFile("app/api/skills/install/route.ts", "utf8");
-  assert.match(source, /const isGlobal = !isRuoyiIntegrationEnabled\(\) && scope !== "project";/);
-  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, cwd\)/);
-});
-
-test("RuoYi 插件安装固定写入用户项目目录，不接受全局范围", async () => {
-  const source = await readFile("app/api/plugins/route.ts", "utf8");
-  assert.match(source, /const isRuoyiProjectInstall = isRuoyiIntegrationEnabled\(\) && body\.action === "install";/);
-  assert.match(source, /const scope = isRuoyiProjectInstall \? "project" : readScope\(body\.scope\);/);
-  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, body\.cwd\)/);
-});
-
-test("RuoYi 子代理配置固定写入用户项目目录，不接受全局范围", async () => {
-  const source = await readFile("app/api/subagents/profiles/route.ts", "utf8");
-  assert.match(source, /const isRuoyiProjectProfile = isRuoyiIntegrationEnabled\(\);/);
-  assert.match(source, /const scope = isRuoyiProjectProfile \? "project" : requestedScope;/);
-  assert.match(source, /trustVerifiedRuoyiWorkspace\(req, cwd\)/);
+test("RuoYi shared resource writes require an administrator and use global scope", async () => {
+  const skills = await readFile("app/api/skills/install/route.ts", "utf8");
+  const plugins = await readFile("app/api/plugins/route.ts", "utf8");
+  const agents = await readFile("app/api/subagents/profiles/route.ts", "utf8");
+  assert.match(skills, /requireRuoyiSharedSettingsWriteAccess/);
+  assert.match(skills, /isRuoyiIntegrationEnabled\(\) \|\| scope !== "project"/);
+  assert.match(plugins, /isRuoyiIntegrationEnabled\(\) \? "global" : readScope\(body.scope\)/);
+  assert.match(agents, /isRuoyiIntegrationEnabled\(\) \? "global" : requestedScope/);
 });
 
 test("RuoYi 新 MCP 固定写入用户项目目录，不接受全局范围", async () => {

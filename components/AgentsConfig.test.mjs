@@ -47,14 +47,13 @@ test("draft backfills code mode for legacy profiles and keeps an explicit choice
   }
 });
 
-test("RuoYi subagent profiles default to the project scope", () => {
+test("RuoYi subagent profiles default to the global scope", () => {
   const declaration = source.slice(source.indexOf("function defaultSubagentProfileScope("), source.indexOf("const EMPTY_PROFILE"));
   const code = ts.transpileModule(declaration, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
   const defaultScope = vm.runInNewContext(`${code}; defaultSubagentProfileScope`);
-  assert.equal(defaultScope(true), "project");
-  assert.equal(defaultScope(false), "global");
-  assert.match(source, /const hideFixedProjectTarget = isRuoyiIntegration && \(creating \|\| displayedScope === "project"\);/);
-  assert.match(source, /\{hideFixedProjectTarget \? null : creating \? \(/);
+  assert.equal(defaultScope(), "global");
+  assert.match(source, /isRuoyiIntegration \? \["global"\] : \["global", "project"\]/);
+  assert.match(source, /\{creating \? \(\s*<ConfigSaveTarget/);
 });
 
 test("built-in profile text is localized without changing profile names", () => {

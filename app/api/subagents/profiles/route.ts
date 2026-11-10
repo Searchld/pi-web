@@ -9,7 +9,7 @@ import {
   type SubagentWritableScope,
 } from "@/lib/subagents";
 import { writeDisabledBuiltInSubagent } from "@/lib/subagent-settings";
-import { requireRuoyiSettingsAccess, trustVerifiedRuoyiWorkspace } from "@/lib/ruoyi-settings-access";
+import { requireRuoyiSettingsAccess, requireRuoyiSharedSettingsWriteAccess, requireRuoyiOwnWorkspace } from "@/lib/ruoyi-settings-access";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +37,8 @@ export async function GET(req: Request) {
   if (denied) return denied;
   try {
     const cwd = await validateCwd(new URL(req.url).searchParams.get("cwd"));
+    const workspaceDenied = await requireRuoyiOwnWorkspace(req, cwd);
+    if (workspaceDenied) return workspaceDenied;
     return NextResponse.json({ profiles: listSubagentProfileSources(cwd) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -45,7 +47,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "agents");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "agents");
   if (denied) return denied;
   try {
     const body = await req.json() as {
@@ -54,14 +56,10 @@ export async function PUT(req: Request) {
       profile?: Omit<SubagentProfile, "scope" | "filePath">;
     };
     const cwd = await validateCwd(body.cwd);
+    const workspaceDenied = await requireRuoyiOwnWorkspace(req, cwd);
+    if (workspaceDenied) return workspaceDenied;
     const requestedScope = validateScope(body.scope);
-    // 企业用户只能在自己的固定工作区创建或覆盖子代理，不能写入共享的全局目录。
-    const isRuoyiProjectProfile = isRuoyiIntegrationEnabled();
-    if (isRuoyiProjectProfile) {
-      const trustDenied = await trustVerifiedRuoyiWorkspace(req, cwd);
-      if (trustDenied) return trustDenied;
-    }
-    const scope = isRuoyiProjectProfile ? "project" : requestedScope;
+    const scope = isRuoyiIntegrationEnabled() ? "global" : requestedScope;
     if (!body.profile || typeof body.profile.name !== "string") {
       return NextResponse.json({ error: "profile required" }, { status: 400 });
     }
@@ -73,11 +71,13 @@ export async function PUT(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "agents");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "agents");
   if (denied) return denied;
   try {
     const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown; enabled?: unknown };
     const cwd = await validateCwd(body.cwd);
+    const workspaceDenied = await requireRuoyiOwnWorkspace(req, cwd);
+    if (workspaceDenied) return workspaceDenied;
     const scope = validateToggleScope(body.scope);
     if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
     if (typeof body.enabled !== "boolean") return NextResponse.json({ error: "enabled required" }, { status: 400 });
@@ -123,11 +123,13 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const denied = await requireRuoyiSettingsAccess(req, "agents");
+  const denied = await requireRuoyiSharedSettingsWriteAccess(req, "agents");
   if (denied) return denied;
   try {
     const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown };
     const cwd = await validateCwd(body.cwd);
+    const workspaceDenied = await requireRuoyiOwnWorkspace(req, cwd);
+    if (workspaceDenied) return workspaceDenied;
     const scope = validateScope(body.scope);
     if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
     deleteSubagentProfile(cwd, scope, body.name);

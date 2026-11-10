@@ -18,7 +18,7 @@ RuoYi 嵌入态仍使用 Pi Web 常规设置中的界面/等宽字体、聊天�
 
 在“角色管理 → 工作台”按工具单独授予权限：`agent:tool:read`、`grep`、`find`、`ls`、`edit`、`write`、`bash`，以及业务工具 `agent:business:use`、子 Agent 的启动/结果/引导三项权限。未获得任何 Agent 工具权限的用户仅能聊天。
 
-Skills 也使用同一套角色授权：`agent:skill:agent-browser`、`agent:skill:figma`、`agent:skill:find-skills`、`agent:skill:frontend-design`、`agent:skill:reverse-engineer-anything` 分别控制对应技能是否载入当前会话和是否出现在 `/skill:<名称>` 的斜杠命令中。`agent:settings:skills` 只允许管理技能设置，不会自动授予任何技能的运行权限；未授权、未知或后来安装的技能不会进入 RuoYi 受控会话。
+Skills 也使用同一套角色授权：`agent:skill:agent-browser`、`agent:skill:figma`、`agent:skill:find-skills`、`agent:skill:frontend-design`、`agent:skill:reverse-engineer-anything` 分别控制对应技能是否载入当前会话和是否出现在 `/skill:<名称>` 的斜杠命令中。`agent:settings:skills` 只允许管理技能设置，不会自动授予任何技能的运行权限；未授权、未知或后来安装的技能不会进入 RuoYi 受控会话。 新安装的技能、插件包和子 Agent 配置使用 Pi 全局资源目录；修改共享资源必须同时拥有对应设置权限和若依超级权限。原个人工作区中的同名技能与子 Agent 不再用于受控会话，历史文件不会自动删除或合并。插件包的安装范围不改变第三方扩展和 MCP 在受控会话中的禁用规则；MCP 设置仍沿用个人工作区。
 
 Pi Web 设置按页面分别使用 `agent:settings:general`、`agent:settings:models`、`agent:settings:skills`、`agent:settings:subagents`、`agent:settings:plugins`、`agent:settings:mcp`。没有对应权限时页签不会显示，且服务端会拒绝该页面的设置 API；`agent:settings:subagents` 只控制子代理配置的新增、编辑、启停，不替代运行时的子 Agent 工具权限。
 
