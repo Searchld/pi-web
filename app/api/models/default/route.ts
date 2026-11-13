@@ -15,6 +15,7 @@ import { invalidateModelsCache } from "@/lib/models-cache";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { requireRuoyiSettingsAccess } from "@/lib/ruoyi-settings-access";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
+import { llamaCppExtension } from "@/lib/pi-sdk-internals";
 
 export const dynamic = "force-dynamic";
 
@@ -86,12 +87,13 @@ export async function PUT(req: Request) {
       ...(isRuoyiIntegrationEnabled() ? {
         resourceLoaderOptions: {
           noExtensions: true,
+          extensionFactories: [llamaCppExtension],
           noSkills: true,
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
         },
-      } : {}),
+      } : { resourceLoaderOptions: { extensionFactories: [llamaCppExtension] } }),
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const { settingsManager } = services;

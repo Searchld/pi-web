@@ -37,6 +37,7 @@ import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
 import { requireRuoyiToolAccess } from "@/lib/ruoyi-access";
 import { getRuoyiEmbedOrigins } from "@/lib/ruoyi-embed-origins";
 import { registerFileWatch } from "@/lib/file-watch-registry";
+import { FILE_WATCH_HEARTBEAT_MS } from "@/lib/file-version";
 import { pageStreamLabel, registerPageStream } from "@/lib/page-stream-registry";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
@@ -706,6 +707,7 @@ export async function GET(
       let lastIno = stat?.ino ?? 0;
       let lastSize = stat?.size ?? 0;
       let lastExists = stat !== undefined;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
       const stream = new ReadableStream({
         start(controller) {
           const send = (eventName: string, data: Record<string, unknown>) => {
@@ -714,6 +716,7 @@ export async function GET(
               controller.enqueue(new TextEncoder().encode(payload));
             } catch {
               // client disconnected
+              clearInterval(heartbeat);
             }
           };
           try {
@@ -747,6 +750,7 @@ export async function GET(
               }
             });
             watcher.on("error", () => {
+              clearInterval(heartbeat);
               try { watcher?.close(); } catch { /* ignore */ }
               watcher = null;
               releaseWatch?.();
@@ -762,6 +766,7 @@ export async function GET(
             // A client gone without a cancel (a phone off the network) would keep
             // the watcher, and its place in the debug panel's count, forever.
             const onAbort = () => {
+              clearInterval(heartbeat);
               try { watcher?.close(); } catch { /* ignore */ }
               watcher = null;
               releaseWatch?.();
@@ -775,12 +780,14 @@ export async function GET(
             // The client snapshots only after this event, so emit it after the
             // watcher exists to avoid dropping changes between those steps.
             send("connected", { filePath });
+            heartbeat = setInterval(() => send("ping", {}), FILE_WATCH_HEARTBEAT_MS);
           } catch {
             send("error", { message: "Failed to watch file" });
             controller.close();
           }
         },
         cancel() {
+          clearInterval(heartbeat);
           try { watcher?.close(); } catch { /* ignore */ }
           releaseWatch?.();
         },

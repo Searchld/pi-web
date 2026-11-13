@@ -36,6 +36,7 @@ export async function GET(request: Request) {
       completionNotificationSuppressedSessionIds: filter(getCompletionNotificationSuppressedRpcSessionIds()),
       subagentsActiveSessionIds: filter(getSessionIdsWithUnsettledSubagentRuns()),
       sessionUiStateRevision: getSessionUiStateRevision(statePath),
+      serverNow: Date.now(),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

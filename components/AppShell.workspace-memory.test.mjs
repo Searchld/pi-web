@@ -30,6 +30,9 @@ test("a linked session that is gone gets no other session in its place (#1168)",
     await t.test(label, () => {
       const urls = [];
       const context = vm.createContext({
+        isHeadlessRuoyi: false,
+        isRuoyiIntegration: false,
+        postRuoyiParentMessage() {},
         ...draftStore,
         crypto: globalThis.crypto,
         URLSearchParams,
@@ -104,6 +107,9 @@ test("New restores the draft after session navigation and workspace auto-restore
       const session = { id: "remembered", cwd: rememberedCwd, projectKey: cwd };
       const response = Promise.withResolvers();
       const context = vm.createContext({
+        isHeadlessRuoyi: false,
+        isRuoyiIntegration: false,
+        postRuoyiParentMessage() {},
         ...draftStore,
         crypto: globalThis.crypto,
         queueMicrotask,
@@ -215,6 +221,9 @@ test("New in another project adopts it up front and parks the composer's draft",
   ].join("\n");
   const fileTab = { id: "file:/p1/notes.md", filePath: "/p1/notes.md" };
   const context = vm.createContext({
+        isHeadlessRuoyi: false,
+        isRuoyiIntegration: false,
+        postRuoyiParentMessage() {},
     ...draftStore,
     crypto: globalThis.crypto,
     URLSearchParams,
@@ -301,6 +310,9 @@ test("the composer's bar moves the fresh composer's draft and model picks instea
   const fileTab = { id: "file:/p1/notes.md", filePath: "/p1/notes.md" };
   const choices = { model: { provider: "custom", modelId: "fast" }, thinkingLevel: "high" };
   const context = vm.createContext({
+        isHeadlessRuoyi: false,
+        isRuoyiIntegration: false,
+        postRuoyiParentMessage() {},
     ...draftStore,
     crypto: globalThis.crypto,
     URLSearchParams,
@@ -406,6 +418,9 @@ test("the bar of the new composer shows the bar's own move until the sidebar rep
   ].join("\n");
   const starts = [];
   const context = vm.createContext({
+        isHeadlessRuoyi: false,
+        isRuoyiIntegration: false,
+        postRuoyiParentMessage() {},
     Error,
     useCallback: (callback) => callback,
     newSessionMoveRef: { current: null },
@@ -473,6 +488,9 @@ test("a new session puts the caret in the fresh composer on desktop only (#1313)
   const frames = [];
   const focused = [];
   const context = vm.createContext({
+        isHeadlessRuoyi: false,
+        isRuoyiIntegration: false,
+        postRuoyiParentMessage() {},
     ...draftStore,
     crypto: globalThis.crypto,
     URLSearchParams,

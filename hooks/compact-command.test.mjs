@@ -54,14 +54,16 @@ function deferred() {
 }
 
 function hook() {
-  const calls = { notices: [], compacting: [], compactErrors: [], compactResults: [], requests: [], promoted: 0, restored: [] };
+  const calls = { notices: [], compacting: [], compactErrors: [], compactResults: [], requests: [], reloads: [], promoted: 0, restored: [] };
   const compact = deferred();
   const scope = {
     sessionIdRef: { current: "session-1" },
     ensureNewSession: async () => "session-1",
     addNotice: (notice) => calls.notices.push(notice),
     isCompacting: false,
+    isCompactionNotNeededError: (error) => error instanceof Error && error.message === "Nothing to compact (session too small)",
     setIsCompacting: (value) => calls.compacting.push(value),
+    setCompactNotNeeded: () => {},
     setCompactError: (error) => calls.compactErrors.push(error),
     setCompactResult: (result) => calls.compactResults.push(result),
     readCompactResult: (result) => result,
@@ -70,7 +72,7 @@ function hook() {
       calls.requests.push(command);
       return compact.promise;
     },
-    loadSession: async () => true,
+    loadSession: async (...args) => { calls.reloads.push(args); return true; },
     promoteNewSession: () => { calls.promoted += 1; },
     opts: { chatInputRef: { current: { prependText: (text) => calls.restored.push(text) } } },
   };
@@ -94,6 +96,10 @@ test("/compact completes at once and runs the compaction detached", async () => 
   // The reset at the start, then the compaction's own result banner.
   assert.deepEqual(calls.compactResults, [null, { tokensBefore: 10 }]);
   assert.equal(calls.promoted, 1);
+  assert.equal(calls.reloads.length, 1);
+  assert.equal(calls.reloads[0][0], "session-1");
+  assert.equal(calls.reloads[0][1] ?? false, false,
+    "refreshing the compacted history must not unmount the focused composer with a loading screen");
 });
 
 test("/compact passes its instructions to the detached compaction", async () => {
@@ -107,8 +113,8 @@ test("/compact passes its instructions to the detached compaction", async () => 
 test("/compact gives its instructions back when the compaction fails", async () => {
   const { run, calls, failCompaction } = hook();
   await run("/compact keep the tests");
-  failCompaction(new Error("Nothing to compact (session too small)"));
+  failCompaction(new Error("Compaction failed"));
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls.compactErrors.at(-1), "Nothing to compact (session too small)");
+  assert.deepEqual(calls.compactErrors.at(-1), "Compaction failed");
   assert.deepEqual(calls.restored, ["/compact keep the tests"]);
 });

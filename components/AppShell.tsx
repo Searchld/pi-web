@@ -785,11 +785,13 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCopySessionField = useCallback((field: SessionCopyField, value: string) => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     void copyText(value).then(() => {
       if (sessionCopyTimerRef.current) clearTimeout(sessionCopyTimerRef.current);
       setCopiedSessionField(field);
       sessionCopyTimerRef.current = setTimeout(() => setCopiedSessionField(null), 1400);
-    });
+    }, () => {});
   }, []);
 
   useEffect(() => {
@@ -1917,6 +1919,13 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     });
   }, [fileTabs, terminalTabs, agentTabs, isRuoyiIntegration]);
 
+  // An extension's ctx.shutdown() ended the session's runtime, as pi quits: leave it the
+  // way a deleted session is left (the refreshed list shows whether its file remains).
+  const handleSessionEnded = useCallback((sessionId: string) => {
+    handleSessionDeleted(sessionId);
+    handleCloseFileTab(`agent:${sessionId}`);
+  }, [handleSessionDeleted, handleCloseFileTab]);
+
   // The Agents switcher's Delete on a side chat: its tab goes with it, and the
   // main chat showing it goes back to the parent, as the Main agent row does
   // (`handleSessionDeleted` would leave the family for a fresh composer).
@@ -2206,6 +2215,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
         <SessionChatPanel
           key={activeAgentTab.sessionId}
           sessionId={activeAgentTab.sessionId}
+          onSessionEnded={handleSessionEnded}
           running={runningSessionIds.has(activeAgentTab.sessionId)}
           initialPrompt={sideChatPrompts[activeAgentTab.sessionId]}
           onInitialPromptConsumed={() => setSideChatPrompts((prev) => {
@@ -3541,6 +3551,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                 });
               }}
               onSpeakAnswer={isRuoyiIntegration && digitalHumanAllowed ? handleSpeakAnswer : undefined}
+              onSessionEnded={handleSessionEnded}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}

@@ -12,6 +12,7 @@ import {
 import { orderSelectorModels, resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
+import { llamaCppExtension } from "@/lib/pi-sdk-internals";
 import { providerDisplayNames, rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { inferRemovedWorktree } from "@/lib/worktree";
 import { isRuoyiIntegrationEnabled } from "@/lib/ruoyi-identity";
@@ -37,12 +38,13 @@ async function loadModels(cwd: string, ruoyiManaged: boolean, scopeAll = false):
     ...(ruoyiManaged ? {
       resourceLoaderOptions: {
         noExtensions: true,
+        extensionFactories: [llamaCppExtension],
         noSkills: true,
         noPromptTemplates: true,
         noThemes: true,
         noContextFiles: true,
       },
-    } : {}),
+    } : { resourceLoaderOptions: { extensionFactories: [llamaCppExtension] } }),
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
   const modelError = services.modelRuntime.getError();
