@@ -49,14 +49,15 @@ test("updates a reused message when its written files change", () => {
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
 });
 
-test("localizes assistant token-usage labels", () => {
+test("shows compact assistant token usage", () => {
   const html = renderMessage({
     role: "assistant",
     content: [{ type: "text", text: "查询完成。" }],
     usage: { input: 1204, output: 878, cacheRead: 2176, cacheWrite: 0, cost: { total: 0 } },
   });
-  assert.match(html, /Input 1,204 · Output 878 · Cache Read 2,176/);
-  assert.doesNotMatch(html, /cache R|\b(?:in|out)\b/);
+  assert.match(html, />1\.2k<\/span>/);
+  assert.match(html, />878<\/span>/);
+  assert.match(html, />R2\.2k<\/span>/);
 });
 
 test("on a narrow phone a message's actions drop their labels and keep their titles", () => {
@@ -187,11 +188,18 @@ test("keeps business process rows on one compact spacing rhythm", () => {
 });
 
 test("renders expanded business tool parameters as an unframed single line", () => {
-  const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
-  assert.match(source, /const displayedInput = businessMode && !codemode \? formatBusinessToolInput\(inputStr\) : inputStr/);
-  assert.match(source, /background: businessMode \? "transparent" : "var\(--bg-subtle\)"/);
-  assert.match(source, /whiteSpace: businessMode \? "pre" : "pre-wrap"/);
-  assert.match(source, /function formatBusinessToolInput\(input: string\)/);
+  const id = "expanded-business-parameters";
+  setToolCallExpanded(id, true);
+  try {
+    const html = renderMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", toolCallId: id, toolName: "query", input: { query: "查看设备" } }],
+    }, { businessMode: true });
+    assert.match(html, /<pre style="[^"]*background:transparent;white-space:pre;/);
+    assert.match(html, /查看设备/);
+  } finally {
+    clearExpandedToolCalls();
+  }
 });
 
 test("previews the first thinking line and reveals the full text with the saved default", () => {

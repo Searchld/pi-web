@@ -40,7 +40,7 @@ test("RuoYi 认证请求中止后允许同一令牌重试", () => {
 test("RuoYi 认证后可从父窗口提交问题并回传回复正文", () => {
   assert.match(source, /event\.data\?\.type === "qimiao-agent-submit"/);
   assert.match(source, /ruoyiAuthenticatedRef\.current/);
-  assert.match(source, /setRuoyiExternalPrompt\(\{ id: ruoyiPromptSequenceRef\.current, text: event\.data\.text\.trim\(\) \}\)/);
+  assert.match(source, /setRuoyiExternalPrompt\(\{ id: ruoyiPromptSequenceRef\.current, text \}\)/);
   assert.match(source, /qimiao-agent-response-start/);
   assert.match(source, /qimiao-agent-response-delta/);
   assert.match(source, /qimiao-agent-response-end/);

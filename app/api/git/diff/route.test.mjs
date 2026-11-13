@@ -71,7 +71,7 @@ test("refuses missing descendants of an outside or dangling junction", async () 
   assert.equal((await request(root, filePath)).status, 403);
 });
 
-test("allows a Windows junction after its target is explicitly allowed", { skip: process.platform !== "win32" }, async () => {
+test("allows a linked directory after its target is explicitly allowed", async () => {
   const root = fixture();
   const outside = fs.mkdtempSync(path.join(base, "allowed-outside-"));
   fs.writeFileSync(path.join(outside, "notes.txt"), "explicitly allowed text\n");
@@ -82,9 +82,8 @@ test("allows a Windows junction after its target is explicitly allowed", { skip:
   const response = await request(root, filePath);
   assert.equal(response.status, 200);
   const result = await response.json();
-  assert.equal(result.supported, true);
-  assert.equal(result.status, "untracked");
-  assert.ok(result.patch.includes("+explicitly allowed text"));
+  // 授权通过，但实际文件不属于仓库，Git diff 不应读取其内容。
+  assert.deepEqual(result, { supported: false });
 });
 
 test("returns ordinary modified and untracked text diffs", async () => {
