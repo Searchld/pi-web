@@ -522,6 +522,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [digitalHumanOpen, setDigitalHumanOpen] = useState(false);
   const [digitalHumanVisibilityReady, setDigitalHumanVisibilityReady] = useState(!isRuoyiIntegration);
+  const [digitalHumanAllowed, setDigitalHumanAllowed] = useState(false);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const [rightFileSearchOpen, setRightFileSearchOpen] = useState(false);
   const [rightExplorerUploadBusy, setRightExplorerUploadBusy] = useState(false);
@@ -542,10 +543,10 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   }, [rightPanelOpen]);
   useEffect(() => {
     if (!isRuoyiIntegration) return;
-    // 手机每次打开时默认关闭，不覆盖电脑端的账号偏好。
-    if (window.matchMedia("(max-width: 640px)").matches) {
+    if (!isRuoyiAuthenticated) {
+      setDigitalHumanAllowed(false);
       setDigitalHumanOpen(false);
-      setDigitalHumanVisibilityReady(true);
+      setDigitalHumanVisibilityReady(false);
       return;
     }
     let active = true;
@@ -553,19 +554,24 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
       .then(async (response) => response.ok ? response.json() as Promise<{ settings?: Record<string, string> }> : null)
       .then((response) => {
         if (!active) return;
-        const open = response?.settings?.["ui.qimiao-web.digital-human-hidden"] !== "true";
+        const allowed = response !== null;
+        // 手机每次打开时默认关闭，不覆盖电脑端的账号偏好。
+        const open = allowed && !window.matchMedia("(max-width: 640px)").matches
+          && response.settings?.["ui.qimiao-web.digital-human-hidden"] !== "true";
+        setDigitalHumanAllowed(allowed);
         digitalHumanHiddenByFilePanelRef.current = open && rightPanelOpenRef.current;
         setDigitalHumanOpen(open && !rightPanelOpenRef.current);
         setDigitalHumanVisibilityReady(true);
       })
       .catch(() => {
         if (!active) return;
-        digitalHumanHiddenByFilePanelRef.current = rightPanelOpenRef.current;
-        setDigitalHumanOpen(!rightPanelOpenRef.current);
+        setDigitalHumanAllowed(false);
+        digitalHumanHiddenByFilePanelRef.current = false;
+        setDigitalHumanOpen(false);
         setDigitalHumanVisibilityReady(true);
       });
     return () => { active = false; };
-  }, [isRuoyiIntegration]);
+  }, [isRuoyiIntegration, isRuoyiAuthenticated]);
   useEffect(() => {
     const justOpened = rightPanelOpen && !rightPanelWasOpenRef.current;
     const justClosed = !rightPanelOpen && rightPanelWasOpenRef.current;
@@ -906,7 +912,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
   }, [isMobile]);
 
   const updateDigitalHumanVisibility = useCallback(async (open: boolean) => {
-    if (!digitalHumanVisibilityReady || digitalHumanVisibilitySavingRef.current) return;
+    if (!digitalHumanAllowed || !digitalHumanVisibilityReady || digitalHumanVisibilitySavingRef.current) return;
     if (isMobile) {
       setDigitalHumanOpen(open);
       return;
@@ -926,7 +932,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     } finally {
       digitalHumanVisibilitySavingRef.current = false;
     }
-  }, [digitalHumanOpen, digitalHumanVisibilityReady, isMobile]);
+  }, [digitalHumanAllowed, digitalHumanOpen, digitalHumanVisibilityReady, isMobile]);
 
   const handleDigitalHumanToggle = useCallback(() => {
     if (isMobile) {
@@ -998,7 +1004,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     if (!digitalHumanOpen) digitalHumanRef.current?.stop();
   }, [digitalHumanOpen]);
   const handleSpeakAnswer = useCallback((text: string) => {
-    if (!text.trim()) return;
+    if (!digitalHumanAllowed || !text.trim()) return;
     if (digitalHumanOpen) {
       digitalHumanRef.current?.speakAnswer(text);
       return;
@@ -1006,7 +1012,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
     // 用户点击播报即表示希望看到数字人；同时将该选择保存为显示状态。
     pendingDigitalHumanSpeechRef.current = text;
     void updateDigitalHumanVisibility(true);
-  }, [digitalHumanOpen, updateDigitalHumanVisibility]);
+  }, [digitalHumanAllowed, digitalHumanOpen, updateDigitalHumanVisibility]);
   const handleDigitalHumanReady = useCallback(() => {
     const text = pendingDigitalHumanSpeechRef.current;
     if (!text) return;
@@ -2885,7 +2891,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
 
   const renderDigitalHumanToggle = (mobile: boolean) => {
     // 面板展开时由其右上角的数字人图标负责隐藏；这里只保留隐藏后的恢复入口。
-    if (!isRuoyiIntegration || !digitalHumanVisibilityReady || digitalHumanOpen) return null;
+    if (!isRuoyiIntegration || !digitalHumanAllowed || !digitalHumanVisibilityReady || digitalHumanOpen) return null;
     const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
     return (
       <button
@@ -3534,7 +3540,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
                   status: event.status,
                 });
               }}
-              onSpeakAnswer={isRuoyiIntegration ? handleSpeakAnswer : undefined}
+              onSpeakAnswer={isRuoyiIntegration && digitalHumanAllowed ? handleSpeakAnswer : undefined}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
@@ -3749,7 +3755,7 @@ export function AppShell({ isRuoyiIntegration = false }: { isRuoyiIntegration?: 
           ) : panelTabContent}
         </div>
       </div>
-      {isRuoyiIntegration && digitalHumanVisibilityReady && digitalHumanOpen && (
+      {isRuoyiIntegration && digitalHumanAllowed && digitalHumanVisibilityReady && digitalHumanOpen && (
         <aside id="digital-human-panel" className="digital-human-side-panel" aria-label="业务助手">
           <DigitalHumanPanel ref={digitalHumanRef} onClose={() => { void updateDigitalHumanVisibility(false); }} onReady={handleDigitalHumanReady} />
         </aside>

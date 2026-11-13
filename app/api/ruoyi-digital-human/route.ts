@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireRuoyiChatAccess } from "@/lib/ruoyi-access";
+import { requireRuoyiDigitalHumanAccess } from "@/lib/ruoyi-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 const VOICE_ENABLED_KEY = "ui.console-pet.voice-enabled";
@@ -11,7 +11,7 @@ function ruoyiApiBaseUrl(): string | null {
 
 /** 仅返回当前登录用户可见的数字人偏好，令牌始终留在 Pi Web 服务端。 */
 export async function GET(request: Request) {
-  const access = await requireRuoyiChatAccess(request);
+  const access = await requireRuoyiDigitalHumanAccess(request);
   if (access instanceof NextResponse) return access;
   const baseUrl = ruoyiApiBaseUrl();
   if (!access || !baseUrl) return NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 404 });
@@ -42,7 +42,7 @@ export async function PUT(request: Request) {
   if (!hasJsonContentType(request)) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
-  const access = await requireRuoyiChatAccess(request);
+  const access = await requireRuoyiDigitalHumanAccess(request);
   if (access instanceof NextResponse) return access;
   const baseUrl = ruoyiApiBaseUrl();
   if (!access || !baseUrl) return NextResponse.json({ error: "RuoYi 集成未启用" }, { status: 404 });

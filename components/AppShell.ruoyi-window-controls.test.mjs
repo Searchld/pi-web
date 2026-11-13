@@ -123,7 +123,7 @@ test("RuoYi 已完成回答可唤起数字人手动播报", () => {
   assert.match(source, /pendingDigitalHumanSpeechRef\.current = text/);
   assert.match(source, /const handleDigitalHumanReady = useCallback/);
   assert.match(source, /onReady=\{handleDigitalHumanReady\}/);
-  assert.match(source, /onSpeakAnswer=\{isRuoyiIntegration \? handleSpeakAnswer : undefined\}/);
+  assert.match(source, /onSpeakAnswer=\{isRuoyiIntegration && digitalHumanAllowed \? handleSpeakAnswer : undefined\}/);
 });
 
 test("RuoYi 浏览器标题随当前会话切换，并使用 Web Agent 标识", () => {

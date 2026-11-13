@@ -16,6 +16,7 @@ const POLICY_TIMEOUT_MS = 5_000;
 
 export type RuoyiAgentPolicy = {
   chatEnabled: boolean;
+  digitalHumanEnabled: boolean;
   toolNames: string[];
   businessToolsEnabled: boolean;
   subagentToolNames: string[];
@@ -29,6 +30,7 @@ export class RuoyiToolAuthorizationError extends Error {}
 export function toRuoyiChannelPolicy(policy: RuoyiAgentPolicy): RuoyiAgentPolicy {
   return {
     chatEnabled: policy.chatEnabled,
+    digitalHumanEnabled: false,
     toolNames: policy.toolNames.filter((name) => channelCodingToolNameSet.has(name)),
     businessToolsEnabled: policy.businessToolsEnabled,
     subagentToolNames: [],
@@ -61,6 +63,7 @@ export function normalizeRuoyiAgentPolicy(payload: unknown): RuoyiAgentPolicy {
   const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
   return {
     chatEnabled: record.chatEnabled === true,
+    digitalHumanEnabled: record.digitalHumanEnabled === true,
     toolNames: stringNames(record.toolNames, codingToolNameSet),
     businessToolsEnabled: record.businessToolsEnabled === true,
     subagentToolNames: stringNames(record.subagentToolNames, subagentToolNameSet),

@@ -67,6 +67,16 @@ export async function requireRuoyiChatAccess(request: Request): Promise<RuoyiPol
   return access;
 }
 
+/** 数字人权限独立于聊天权限；使用嵌入式数字人时两者均需满足。 */
+export async function requireRuoyiDigitalHumanAccess(request: Request): Promise<RuoyiPolicyAccess | NextResponse | null> {
+  const access = await requireRuoyiChatAccess(request);
+  if (access instanceof NextResponse || access === null) return access;
+  if (!access.policy.digitalHumanEnabled) {
+    return NextResponse.json({ error: "当前账户未获得数字人使用权限。" }, { status: 403 });
+  }
+  return access;
+}
+
 /** 工具接口必须同时满足聊天入口与对应工具权限。 */
 export async function requireRuoyiToolAccess(
   request: Request,
