@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     // seconds is not searched yet; the stale read schedules the rebuild, so the
     // next search sees it.
     const sessions = query && !request.signal.aborted
-      ? (await listAllSessions({ allowStale: true })).filter((session) => (!workspace || session.cwd === workspace) && session.relation?.kind !== "side")
+      ? (await listAllSessions({ allowStale: true })).filter((session) => (!workspace || session.cwd === workspace))
       : [];
     return NextResponse.json(await searchSessionContents(sessions, query, request.signal), { headers });
   } catch (error) {
