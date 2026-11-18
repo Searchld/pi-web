@@ -52,7 +52,6 @@ export async function GET(req: Request) {
     const visible = (ids: string[]) => visibleSessionIds ? ids.filter((id) => visibleSessionIds.has(id)) : ids;
     const sessions = withSubagentDisplayStatus(visibleSessions);
     return perf?.attach(jsonResponse(
-      req,
       {
         sessions,
         sessionListVersion,
@@ -62,7 +61,6 @@ export async function GET(req: Request) {
       },
       { headers: { "Cache-Control": "no-store" } },
     )) ?? jsonResponse(
-      req,
       {
         sessions,
         sessionListVersion,

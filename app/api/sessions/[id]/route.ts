@@ -145,7 +145,6 @@ export async function GET(
     }]))[0] : null;
 
     return perf?.attach(jsonResponse(
-      req,
       {
         sessionId: id,
         filePath,
@@ -161,7 +160,6 @@ export async function GET(
         ...(wrapperRebuilt ? { wrapperRebuilt: true } : {}),
       },
     )) ?? jsonResponse(
-      req,
       {
         sessionId: id,
         filePath,

@@ -1640,8 +1640,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
-    collapsed: archiveCollapsedSet,
-  }) : []), [archiveMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, archiveCollapsedSet]);
+    collapsed: hideWorkspacePicker ? undefined : archiveCollapsedSet,
+  }) : []), [archiveMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, archiveCollapsedSet, hideWorkspacePicker]);
+  // 固定工作区不展示路径标题，也不让旧的折叠状态隐藏归档会话。
+  const archiveDisplayRows = hideWorkspacePicker
+    ? archiveRows.filter((row) => row.kind !== "archive-group")
+    : archiveRows;
   // The archive's projects, top to bottom, folded or not.
   const archiveGroups = useMemo(
     () => archiveRows.flatMap((row) => (row.kind === "archive-group" ? [row] : [])),
@@ -2781,7 +2785,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     const old = archiveDeleteIds("old");
     const folded = archiveGroups.filter((row) => !row.expanded).length;
     return [
-      {
+      ...(!hideWorkspacePicker ? ([{
         type: "item",
         id: "collapse-all",
         label: t("sidebar.collapseAllGroups"),
@@ -2797,7 +2801,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         disabled: folded === 0,
         onSelect: () => setAllArchiveGroupsExpanded(true),
       },
-      { type: "separator", id: "separator-sessions" },
+      { type: "separator", id: "separator-sessions" }] satisfies SidebarMenuItem[]) : []),
       {
         type: "item",
         id: "restore-all",
@@ -3327,7 +3331,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
                 </div>
                 <SessionTree
                   {...treeProps}
-                  rows={archiveRows}
+                  rows={archiveDisplayRows}
                   emptyLabel={t("sidebar.noArchived")}
                   reveal={archiveReveal}
                   onRevealHandled={handleArchiveRevealHandled}

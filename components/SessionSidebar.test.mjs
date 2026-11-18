@@ -747,7 +747,7 @@ test("the footer opens the project list in the files; fixed workspaces remove it
   assert.match(source, /const sessionTreeRows = hideWorkspacePicker\s*\? model\.rows\.filter\(\(row\) => row\.kind !== "footer-open" && row\.kind !== "group" && row\.kind !== "group-empty" && row\.kind !== "pinned-more" && row\.kind !== "group-more"\)\s*: model\.rows;/);
   assert.match(source, /<div className="ruoyi-recent-toolbar">[\s\S]*?className="ruoyi-new-chat"[\s\S]*?onClick=\{handleNewSession\}[\s\S]*?\{t\("sidebar\.newChat"\)\}[\s\S]*?setSessionSearchOpen\(\(open\) => !open\)/);
   assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionTreeRows\}\s+timeGroupRecent=\{hideWorkspacePicker\}\s+collapsedRecentTimeGroups=\{collapsedRecentTimeGroups\}\s+onToggleRecentTimeGroup=\{handleToggleRecentTimeGroup\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
-  assert.match(source, /<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{archiveRows\}\s+emptyLabel=\{t\("sidebar\.noArchived"\)\}\s+reveal=\{archiveReveal\}\s+onRevealHandled=\{handleArchiveRevealHandled\}\s+\/>/);
+  assert.match(source, /<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{archiveDisplayRows\}\s+emptyLabel=\{t\("sidebar\.noArchived"\)\}\s+reveal=\{archiveReveal\}\s+onRevealHandled=\{handleArchiveRevealHandled\}\s+\/>/);
   assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
   assert.match(callbackBody("handleTogglePinned"), /setPinnedCollapsed\(next\);\s*savePinnedCollapsed\(next\);/);
   const locked = render({ hideWorkspacePicker: true });
@@ -851,4 +851,13 @@ test("every way of opening a session reveals its row through one effect keyed on
   assert.match(fork, /openRevealFocusRef\.current = \{\s+sessionId: forked\.id,/);
   // Only the open session's effect and a moved group ask the main tree for a row.
   assert.equal(source.match(/\bsetTreeReveal\(\{/g)?.length, 2);
+});
+
+test("若依归档列表隐藏工作区分组并始终显示会话", () => {
+  assert.match(source, /collapsed: hideWorkspacePicker \? undefined : archiveCollapsedSet/);
+  assert.match(source, /const archiveDisplayRows = hideWorkspacePicker\s*\? archiveRows\.filter\(\(row\) => row\.kind !== "archive-group"\)\s*: archiveRows/);
+  assert.match(source, /rows=\{archiveDisplayRows\}/);
+  const menu = source.slice(source.indexOf("const archiveMenuItems"), source.indexOf("const archiveDeleteBody"));
+  assert.match(menu, /!hideWorkspacePicker[\s\S]*?id: "collapse-all"[\s\S]*?id: "expand-all"/);
+  assert.match(menu, /id: "restore-all"[\s\S]*?id: "delete-all"/);
 });
